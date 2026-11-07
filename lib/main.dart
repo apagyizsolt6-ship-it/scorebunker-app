@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
+import 'data/league_catalog.dart';
 import 'models/fixture.dart';
 import 'providers.dart';
 import 'screens/api_key_screen.dart';
@@ -159,24 +160,36 @@ class _ErrorView extends StatelessWidget {
   }
 }
 
-// ==================== CSOPORTOSÍTÁS (ország → bajnokság) ====================
+// ==================== CSOPORTOSÍTÁS (top bajnokságok + országok) ====================
 const String _otherLabel = 'Nemzetközi / egyéb';
 
-/// Zászló emoji az ISO országkódból (pl. "ES", "GB-ENG" -> GB).
+/// Zászló emoji az országkódból (pl. "ES", "GB-ENG", "EU").
 String _flagFor(String geo) {
-  final ok = geo.length == 2 || (geo.length > 2 && geo[2] == '-');
+  final g = geo.toUpperCase();
+  const tags = {'GB-ENG': 'gbeng', 'GB-SCT': 'gbsct', 'GB-WLS': 'gbwls'};
+  final t = tags[g];
+  if (t != null) {
+    return String.fromCharCodes(
+        [0x1F3F4, ...t.codeUnits.map((c) => 0xE0000 + c), 0xE007F]);
+  }
+  final ok = g.length == 2 || (g.length > 2 && g[2] == '-');
   if (!ok) return '🌐';
-  final cc = geo.substring(0, 2).toUpperCase();
+  final cc = g.substring(0, 2);
   if (!RegExp(r'^[A-Z]{2}$').hasMatch(cc)) return '🌐';
   return String.fromCharCodes(cc.codeUnits.map((c) => 0x1F1E6 + c - 0x41));
 }
 
-class _CountryGroup {
-  final String zone;
+int _byKick(Fixture a, Fixture b) =>
+    (a.kickoff ?? DateTime(0)).compareTo(b.kickoff ?? DateTime(0));
+
+class _Group {
+  final String key;
+  final String title;
   final String geo;
+  final bool isTop;
   final Map<String, List<Fixture>> leagues = {};
 
-  _CountryGroup(this.zone, this.geo);
+  _Group(this.key, this.title, this.geo, this.isTop);
 
   int get count => leagues.values.fold(0, (s, l) => s + l.length);
   int get live =>
@@ -188,38 +201,67 @@ class _LeagueTitle {
   const _LeagueTitle(this.name);
 }
 
-List<_CountryGroup> _groupFixtures(List<Fixture> list) {
-  final map = <String, _CountryGroup>{};
+class _SectionLabel {
+  final String text;
+  const _SectionLabel(this.text);
+}
+
+List<_Group> _groupFixtures(List<Fixture> list) {
+  final tops = <String, _Group>{};
+  final countries = <String, _Group>{};
+
   for (final m in list) {
-    final zone = m.leagueZone.isEmpty ? _otherLabel : m.leagueZone;
-    final g = map.putIfAbsent(zone, () => _CountryGroup(zone, m.leagueGeo));
-    g.leagues.putIfAbsent(m.leagueName, () => []).add(m);
-  }
-  final groups = map.values.toList()
-    ..sort((a, b) {
-      if (a.zone == _otherLabel) return 1;
-      if (b.zone == _otherLabel) return -1;
-      return a.zone.compareTo(b.zone);
-    });
-  for (final g in groups) {
-    for (final l in g.leagues.values) {
-      l.sort((a, b) =>
-          (a.kickoff ?? DateTime(0)).compareTo(b.kickoff ?? DateTime(0)));
+    final t = topLeagueOf(m);
+    if (t != null) {
+      final g = tops.putIfAbsent(
+          t.key, () => _Group('top:${t.key}', t.nameHu, t.geo, true));
+      g.leagues.putIfAbsent(m.leagueName, () => []).add(m);
+    } else {
+      final zone = m.leagueZone.isEmpty ? _otherLabel : m.leagueZone;
+      final g = countries.putIfAbsent(
+        zone,
+        () => _Group(
+          'c:$zone',
+          zone == _otherLabel ? _otherLabel : countryHu(zone),
+          m.leagueGeo,
+          false,
+        ),
+      );
+      g.leagues.putIfAbsent(m.leagueName, () => []).add(m);
     }
   }
-  return groups;
+
+  final order = {
+    for (var i = 0; i < topLeagues.length; i++) topLeagues[i].key: i,
+  };
+  final topList = tops.entries.toList()
+    ..sort((a, b) => order[a.key]!.compareTo(order[b.key]!));
+  final countryList = countries.values.toList()
+    ..sort((a, b) {
+      if (a.title == _otherLabel) return 1;
+      if (b.title == _otherLabel) return -1;
+      return a.title.compareTo(b.title);
+    });
+
+  return [...topList.map((e) => e.value), ...countryList];
 }
 
 List<Fixture> _applySearch(List<Fixture> list, String q) {
   final query = q.trim().toLowerCase();
   if (query.isEmpty) return list;
-  return list
-      .where((m) =>
-          m.homeTeam.toLowerCase().contains(query) ||
-          m.awayTeam.toLowerCase().contains(query) ||
-          m.leagueName.toLowerCase().contains(query) ||
-          m.leagueZone.toLowerCase().contains(query))
-      .toList();
+  return list.where((m) {
+    final top = topLeagueOf(m);
+    final hay = [
+      m.homeTeam,
+      m.awayTeam,
+      m.leagueName,
+      leagueHu(m.leagueName),
+      m.leagueZone,
+      countryHu(m.leagueZone),
+      if (top != null) top.nameHu,
+    ].join(' | ').toLowerCase();
+    return hay.contains(query);
+  }).toList();
 }
 
 // ==================== MECCSEK ====================
@@ -233,9 +275,8 @@ class MatchesPage extends ConsumerWidget {
     final collapsed = ref.watch(collapsedCountriesProvider);
     final all = ref.watch(fixturesProvider).valueOrNull ?? const <Fixture>[];
 
-    final allZones = _groupFixtures(all).map((g) => g.zone).toSet();
-    final allCollapsed =
-        allZones.isNotEmpty && allZones.every(collapsed.contains);
+    final allKeys = _groupFixtures(all).map((g) => g.key).toSet();
+    final allCollapsed = allKeys.isNotEmpty && allKeys.every(collapsed.contains);
 
     return Scaffold(
       appBar: AppBar(
@@ -247,7 +288,7 @@ class MatchesPage extends ConsumerWidget {
             icon: Icon(allCollapsed ? Icons.unfold_more : Icons.unfold_less),
             onPressed: () {
               ref.read(collapsedCountriesProvider.notifier).state =
-                  allCollapsed ? <String>{} : {...allZones};
+                  allCollapsed ? <String>{} : {...allKeys};
             },
           ),
           IconButton(
@@ -288,16 +329,37 @@ class MatchesPage extends ConsumerWidget {
                     }
                     final groups = _groupFixtures(filtered);
                     // Keresés közben mindent mutatunk.
-                    final hidden = query.trim().isEmpty ? collapsed : <String>{};
+                    final hidden =
+                        query.trim().isEmpty ? collapsed : <String>{};
 
                     final items = <Object>[];
+                    var topLabel = false;
+                    var countryLabel = false;
                     for (final g in groups) {
+                      if (g.isTop && !topLabel) {
+                        items.add(const _SectionLabel('⭐ TOP BAJNOKSÁGOK'));
+                        topLabel = true;
+                      }
+                      if (!g.isTop && topLabel && !countryLabel) {
+                        items.add(const _SectionLabel('ORSZÁGOK'));
+                        countryLabel = true;
+                      }
                       items.add(g);
-                      if (hidden.contains(g.zone)) continue;
-                      final names = g.leagues.keys.toList()..sort();
-                      for (final n in names) {
-                        items.add(_LeagueTitle(n));
-                        items.addAll(g.leagues[n]!);
+                      if (hidden.contains(g.key)) continue;
+                      if (g.isTop) {
+                        final matches = g.leagues.values
+                            .expand((l) => l)
+                            .toList()
+                          ..sort(_byKick);
+                        items.addAll(matches);
+                      } else {
+                        final names = g.leagues.keys.toList()
+                          ..sort((a, b) =>
+                              leagueHu(a).compareTo(leagueHu(b)));
+                        for (final n in names) {
+                          items.add(_LeagueTitle(leagueHu(n)));
+                          items.addAll([...g.leagues[n]!]..sort(_byKick));
+                        }
                       }
                     }
 
@@ -311,13 +373,32 @@ class MatchesPage extends ConsumerWidget {
                         itemCount: items.length,
                         itemBuilder: (context, index) {
                           final item = items[index];
-                          if (item is _CountryGroup) {
-                            return _CountryHeader(
+                          if (item is _SectionLabel) {
+                            return Padding(
+                              padding: const EdgeInsets.only(
+                                  left: 4, top: 16, bottom: 2),
+                              child: Text(
+                                item.text,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.8,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                              ),
+                            );
+                          }
+                          if (item is _Group) {
+                            return _GroupHeader(
                               group: item,
-                              collapsed: hidden.contains(item.zone),
+                              collapsed: hidden.contains(item.key),
                               onTap: () {
-                                final s = {...ref.read(collapsedCountriesProvider)};
-                                if (!s.remove(item.zone)) s.add(item.zone);
+                                final s = {
+                                  ...ref.read(collapsedCountriesProvider)
+                                };
+                                if (!s.remove(item.key)) s.add(item.key);
                                 ref
                                     .read(collapsedCountriesProvider.notifier)
                                     .state = s;
@@ -384,7 +465,10 @@ class _SearchFieldState extends ConsumerState<_SearchField> {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: TextField(
         controller: _c,
-        onChanged: (v) => ref.read(searchQueryProvider.notifier).state = v,
+        onChanged: (v) {
+          ref.read(searchQueryProvider.notifier).state = v;
+          setState(() {});
+        },
         decoration: InputDecoration(
           hintText: 'Keresés: csapat, bajnokság, ország',
           prefixIcon: const Icon(Icons.search),
@@ -406,11 +490,11 @@ class _SearchFieldState extends ConsumerState<_SearchField> {
   }
 }
 
-class _CountryHeader extends StatelessWidget {
-  final _CountryGroup group;
+class _GroupHeader extends StatelessWidget {
+  final _Group group;
   final bool collapsed;
   final VoidCallback onTap;
-  const _CountryHeader({
+  const _GroupHeader({
     required this.group,
     required this.collapsed,
     required this.onTap,
@@ -422,7 +506,9 @@ class _CountryHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Material(
-        color: scheme.surfaceContainerHighest.withOpacity(0.6),
+        color: group.isTop
+            ? scheme.primaryContainer.withOpacity(0.55)
+            : scheme.surfaceContainerHighest.withOpacity(0.6),
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
@@ -435,7 +521,7 @@ class _CountryHeader extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    group.zone,
+                    group.title,
                     style: const TextStyle(
                         fontWeight: FontWeight.w700, fontSize: 15),
                   ),
@@ -669,8 +755,7 @@ class _SlipWizardPageState extends ConsumerState<SlipWizardPage> {
               ),
               data: (list) {
                 final open = list.where((m) => m.isScheduled).toList()
-                  ..sort((a, b) => (a.kickoff ?? DateTime(0))
-                      .compareTo(b.kickoff ?? DateTime(0)));
+                  ..sort(_byKick);
                 if (open.isEmpty) {
                   return const Center(
                       child: Text('Nincs kiválasztható meccs ezen a napon.'));
@@ -699,7 +784,8 @@ class _SlipWizardPageState extends ConsumerState<SlipWizardPage> {
                           });
                         },
                         title: Text('${m.homeTeam} - ${m.awayTeam}'),
-                        subtitle: Text('${m.leagueName} • ${m.timeLabel}'),
+                        subtitle:
+                            Text('${leagueHu(m.leagueName)} • ${m.timeLabel}'),
                       ),
                     );
                   }).toList(),
