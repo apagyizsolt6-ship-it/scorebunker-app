@@ -159,6 +159,69 @@ class _ErrorView extends StatelessWidget {
   }
 }
 
+// ==================== CSOPORTOSÍTÁS (ország → bajnokság) ====================
+const String _otherLabel = 'Nemzetközi / egyéb';
+
+/// Zászló emoji az ISO országkódból (pl. "ES", "GB-ENG" -> GB).
+String _flagFor(String geo) {
+  final ok = geo.length == 2 || (geo.length > 2 && geo[2] == '-');
+  if (!ok) return '🌐';
+  final cc = geo.substring(0, 2).toUpperCase();
+  if (!RegExp(r'^[A-Z]{2}$').hasMatch(cc)) return '🌐';
+  return String.fromCharCodes(cc.codeUnits.map((c) => 0x1F1E6 + c - 0x41));
+}
+
+class _CountryGroup {
+  final String zone;
+  final String geo;
+  final Map<String, List<Fixture>> leagues = {};
+
+  _CountryGroup(this.zone, this.geo);
+
+  int get count => leagues.values.fold(0, (s, l) => s + l.length);
+  int get live =>
+      leagues.values.fold(0, (s, l) => s + l.where((m) => m.isLive).length);
+}
+
+class _LeagueTitle {
+  final String name;
+  const _LeagueTitle(this.name);
+}
+
+List<_CountryGroup> _groupFixtures(List<Fixture> list) {
+  final map = <String, _CountryGroup>{};
+  for (final m in list) {
+    final zone = m.leagueZone.isEmpty ? _otherLabel : m.leagueZone;
+    final g = map.putIfAbsent(zone, () => _CountryGroup(zone, m.leagueGeo));
+    g.leagues.putIfAbsent(m.leagueName, () => []).add(m);
+  }
+  final groups = map.values.toList()
+    ..sort((a, b) {
+      if (a.zone == _otherLabel) return 1;
+      if (b.zone == _otherLabel) return -1;
+      return a.zone.compareTo(b.zone);
+    });
+  for (final g in groups) {
+    for (final l in g.leagues.values) {
+      l.sort((a, b) =>
+          (a.kickoff ?? DateTime(0)).compareTo(b.kickoff ?? DateTime(0)));
+    }
+  }
+  return groups;
+}
+
+List<Fixture> _applySearch(List<Fixture> list, String q) {
+  final query = q.trim().toLowerCase();
+  if (query.isEmpty) return list;
+  return list
+      .where((m) =>
+          m.homeTeam.toLowerCase().contains(query) ||
+          m.awayTeam.toLowerCase().contains(query) ||
+          m.leagueName.toLowerCase().contains(query) ||
+          m.leagueZone.toLowerCase().contains(query))
+      .toList();
+}
+
 // ==================== MECCSEK ====================
 class MatchesPage extends ConsumerWidget {
   const MatchesPage({super.key});
@@ -166,12 +229,27 @@ class MatchesPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final keyState = ref.watch(apiKeyProvider);
+    final query = ref.watch(searchQueryProvider);
+    final collapsed = ref.watch(collapsedCountriesProvider);
+    final all = ref.watch(fixturesProvider).valueOrNull ?? const <Fixture>[];
+
+    final allZones = _groupFixtures(all).map((g) => g.zone).toSet();
+    final allCollapsed =
+        allZones.isNotEmpty && allZones.every(collapsed.contains);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Scorebunker'),
         centerTitle: true,
         actions: [
+          IconButton(
+            tooltip: allCollapsed ? 'Összes kinyitása' : 'Összes összecsukása',
+            icon: Icon(allCollapsed ? Icons.unfold_more : Icons.unfold_less),
+            onPressed: () {
+              ref.read(collapsedCountriesProvider.notifier).state =
+                  allCollapsed ? <String>{} : {...allZones};
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () => ref.invalidate(fixturesProvider),
@@ -188,64 +266,206 @@ class MatchesPage extends ConsumerWidget {
         data: (k) {
           if (k == null || k.isEmpty) return const _NoKeyView();
           final fixtures = ref.watch(fixturesProvider);
-          return fixtures.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => _ErrorView(
-              error: e,
-              onRetry: () => ref.invalidate(fixturesProvider),
-            ),
-            data: (list) {
-              if (list.isEmpty) {
-                return const Center(child: Text('Nincs meccs ezen a napon.'));
-              }
-              final sorted = [...list]..sort((a, b) {
-                  final c = a.leagueName.compareTo(b.leagueName);
-                  if (c != 0) return c;
-                  return (a.kickoff ?? DateTime(0))
-                      .compareTo(b.kickoff ?? DateTime(0));
-                });
-              final items = <Object>[];
-              String? last;
-              for (final m in sorted) {
-                if (m.leagueName != last) {
-                  items.add(m.leagueName);
-                  last = m.leagueName;
-                }
-                items.add(m);
-              }
-              return RefreshIndicator(
-                onRefresh: () async {
-                  ref.invalidate(fixturesProvider);
-                  await ref.read(fixturesProvider.future);
-                },
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: items.length,
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    if (item is String) {
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 8, bottom: 8),
-                        child: Text(
-                          item,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                        ),
+          return Column(
+            children: [
+              const _SearchField(),
+              Expanded(
+                child: fixtures.when(
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (e, _) => _ErrorView(
+                    error: e,
+                    onRetry: () => ref.invalidate(fixturesProvider),
+                  ),
+                  data: (list) {
+                    final filtered = _applySearch(list, query);
+                    if (filtered.isEmpty) {
+                      return Center(
+                        child: Text(list.isEmpty
+                            ? 'Nincs meccs ezen a napon.'
+                            : 'Nincs találat.'),
                       );
                     }
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: MatchCard(fixture: item as Fixture),
+                    final groups = _groupFixtures(filtered);
+                    // Keresés közben mindent mutatunk.
+                    final hidden = query.trim().isEmpty ? collapsed : <String>{};
+
+                    final items = <Object>[];
+                    for (final g in groups) {
+                      items.add(g);
+                      if (hidden.contains(g.zone)) continue;
+                      final names = g.leagues.keys.toList()..sort();
+                      for (final n in names) {
+                        items.add(_LeagueTitle(n));
+                        items.addAll(g.leagues[n]!);
+                      }
+                    }
+
+                    return RefreshIndicator(
+                      onRefresh: () async {
+                        ref.invalidate(fixturesProvider);
+                        await ref.read(fixturesProvider.future);
+                      },
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                        itemCount: items.length,
+                        itemBuilder: (context, index) {
+                          final item = items[index];
+                          if (item is _CountryGroup) {
+                            return _CountryHeader(
+                              group: item,
+                              collapsed: hidden.contains(item.zone),
+                              onTap: () {
+                                final s = {...ref.read(collapsedCountriesProvider)};
+                                if (!s.remove(item.zone)) s.add(item.zone);
+                                ref
+                                    .read(collapsedCountriesProvider.notifier)
+                                    .state = s;
+                              },
+                            );
+                          }
+                          if (item is _LeagueTitle) {
+                            return Padding(
+                              padding: const EdgeInsets.only(
+                                  left: 4, top: 10, bottom: 6),
+                              child: Text(
+                                item.name,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                              ),
+                            );
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: MatchCard(fixture: item as Fixture),
+                          );
+                        },
+                      ),
                     );
                   },
                 ),
-              );
-            },
+              ),
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _SearchField extends ConsumerStatefulWidget {
+  const _SearchField();
+
+  @override
+  ConsumerState<_SearchField> createState() => _SearchFieldState();
+}
+
+class _SearchFieldState extends ConsumerState<_SearchField> {
+  late final TextEditingController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = TextEditingController(text: ref.read(searchQueryProvider));
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: TextField(
+        controller: _c,
+        onChanged: (v) => ref.read(searchQueryProvider.notifier).state = v,
+        decoration: InputDecoration(
+          hintText: 'Keresés: csapat, bajnokság, ország',
+          prefixIcon: const Icon(Icons.search),
+          isDense: true,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          suffixIcon: _c.text.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () {
+                    _c.clear();
+                    ref.read(searchQueryProvider.notifier).state = '';
+                    setState(() {});
+                  },
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CountryHeader extends StatelessWidget {
+  final _CountryGroup group;
+  final bool collapsed;
+  final VoidCallback onTap;
+  const _CountryHeader({
+    required this.group,
+    required this.collapsed,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Material(
+        color: scheme.surfaceContainerHighest.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Text(_flagFor(group.geo), style: const TextStyle(fontSize: 20)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    group.zone,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 15),
+                  ),
+                ),
+                if (group.live > 0) ...[
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'ÉLŐ ${group.live}',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Text('${group.count}',
+                    style: TextStyle(color: scheme.onSurfaceVariant)),
+                const SizedBox(width: 4),
+                Icon(collapsed ? Icons.expand_more : Icons.expand_less),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
