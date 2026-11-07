@@ -29,8 +29,12 @@ jobs:
       - name: Create Flutter project structure
         run: |
           flutter create . --project-name scorebunker_app --org com.scorebunker
-          # Megtartjuk a saját fájljainkat
           echo "Flutter project structure generated"
+
+      - name: Add INTERNET permission (release build)
+        run: |
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' android/app/src/main/AndroidManifest.xml
+          grep -n "INTERNET" android/app/src/main/AndroidManifest.xml
 
       - name: Install dependencies
         run: flutter pub get
