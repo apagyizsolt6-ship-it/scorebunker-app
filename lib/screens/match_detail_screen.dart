@@ -1,11 +1,17 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../data/league_catalog.dart';
 import '../models/fixture.dart';
+import '../models/match_extras.dart';
+import '../models/standing.dart';
 import '../providers.dart';
 import '../services/sport_api.dart';
+import '../widgets/common.dart';
+import 'standings_screen.dart';
 
 class MatchDetailScreen extends ConsumerWidget {
   final Fixture fixture;
@@ -55,191 +61,478 @@ class MatchDetailScreen extends ConsumerWidget {
     }
   }
 
+  /// A listában élő frissített állapot, különben a megnyitáskori meccs.
+  Fixture _current(WidgetRef ref) {
+    final list = ref.watch(liveFixturesProvider).valueOrNull;
+    if (list != null) {
+      for (final x in list) {
+        if (x.id == fixture.id) return x;
+      }
+    }
+    return fixture;
+  }
+
+  Widget _title(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(text,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+      );
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final f = fixture;
-    final forms = ref.watch(leagueFormProvider(f.leagueId));
+    final f = _current(ref);
+    final detail = ref.watch(detailProvider(f.id));
+    final standings = ref.watch(standingsProvider(f.leagueId));
     final h2h = ref.watch(h2hProvider((f.homeId, f.awayId)));
+    final favs = ref.watch(favoritesProvider);
+    final d = detail.valueOrNull;
+
+    void toggleFav(int id, String name) =>
+        ref.read(favoritesProvider.notifier).toggle(id, name);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('${f.homeTeam} vs ${f.awayTeam}'),
+        title: Text('${f.homeLabel} – ${f.awayLabel}',
+            maxLines: 1, overflow: TextOverflow.ellipsis),
         centerTitle: true,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Fejléc
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  Text(
-                    _leagueTitle(f),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _statusText(f),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: f.isLive ? Colors.red : null,
-                      fontWeight: f.isLive ? FontWeight.bold : null,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(f.homeTeam,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 16)),
-                      ),
-                      Text(
-                        f.hasScore ? '${f.homeScore} - ${f.awayScore}' : 'VS',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 20),
-                      ),
-                      Expanded(
-                        child: Text(f.awayTeam,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 16)),
-                      ),
-                    ],
-                  ),
-                  if (f.penaltyHome != null && f.penaltyAway != null) ...[
-                    const SizedBox(height: 6),
-                    Text('Tizenegyesek: ${f.penaltyHome} - ${f.penaltyAway}',
-                        style: const TextStyle(fontSize: 12)),
-                  ],
-                ],
-              ),
-            ),
+        actions: [
+          IconButton(
+            tooltip: 'Frissítés',
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              ref.invalidate(detailProvider(f.id));
+              ref.invalidate(statsProvider(f.id));
+              ref.invalidate(fixturesProvider);
+            },
           ),
-          const SizedBox(height: 16),
-
-          // Események
-          if (!f.isScheduled) ...[
-            const Text('Események',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            _async(ref.watch(eventsProvider(f.id)), (events) {
-              if (events.isEmpty) return const Text('Nincs esemény.');
-              return Column(
-                children: events.map((e) {
-                  final home = e.side == 'home';
-                  final text = Text('${e.icon} ${e.minute} ${e.player}',
-                      style: const TextStyle(fontSize: 13));
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: Row(
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(detailProvider(f.id));
+          ref.invalidate(statsProvider(f.id));
+          ref.invalidate(fixturesProvider);
+          await ref.read(detailProvider(f.id).future);
+        },
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            // Fejléc
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Text(
+                      _leagueTitle(f),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _statusText(f),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: f.isLive ? Colors.red : null,
+                        fontWeight: f.isLive ? FontWeight.bold : null,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
-                            child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: home ? text : const SizedBox())),
+                          child: _TeamBlock(
+                            id: f.homeId,
+                            name: f.homeTeam,
+                            isFav: favs.containsKey(f.homeId),
+                            onToggle: () => toggleFav(f.homeId, f.homeTeam),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 14),
+                          child: Text(
+                            f.hasScore ? '${f.homeScore} - ${f.awayScore}' : 'VS',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 22,
+                              color: f.isLive ? Colors.red : null,
+                            ),
+                          ),
+                        ),
                         Expanded(
-                            child: Align(
-                                alignment: Alignment.centerRight,
-                                child: home ? const SizedBox() : text)),
+                          child: _TeamBlock(
+                            id: f.awayId,
+                            name: f.awayTeam,
+                            isFav: favs.containsKey(f.awayId),
+                            onToggle: () => toggleFav(f.awayId, f.awayTeam),
+                          ),
+                        ),
                       ],
                     ),
-                  );
-                }).toList(),
-              );
-            }),
-            const SizedBox(height: 24),
-          ],
-
-          // Forma
-          const Text('Forma (utolsó meccsek)',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          _async(forms, (map) {
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                    child: _FormRow(f.homeTeam, map[f.homeId] ?? const [])),
-                const SizedBox(width: 12),
-                Expanded(
-                    child: _FormRow(f.awayTeam, map[f.awayId] ?? const [])),
-              ],
-            );
-          }),
-
-          const SizedBox(height: 24),
-
-          // H2H
-          const Text('Egymás ellen (utolsó 6)',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          _async(h2h, (list) {
-            final done = list.where((m) => m.isFinished && m.hasScore).toList()
-              ..sort((a, b) => b.date.compareTo(a.date));
-            final last = done.take(6).toList();
-            if (last.isEmpty) {
-              return const Text('Nincs korábbi egymás elleni meccs.');
-            }
-            int hw = 0, d = 0, aw = 0;
-            for (final m in last) {
-              if (m.homeScore == m.awayScore) {
-                d++;
-              } else {
-                final winnerId =
-                    m.homeScore! > m.awayScore! ? m.homeId : m.awayId;
-                if (winnerId == f.homeId) {
-                  hw++;
-                } else {
-                  aw++;
-                }
-              }
-            }
-            return Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _H2HBox('$hw', 'Hazai győzelem'),
-                    _H2HBox('$d', 'Döntetlen'),
-                    _H2HBox('$aw', 'Vendég győzelem'),
+                    if (d != null && d.hasHalfTime && !f.isScheduled) ...[
+                      const SizedBox(height: 4),
+                      Text('Félidő: ${d.htHome} - ${d.htAway}',
+                          style: const TextStyle(fontSize: 12)),
+                    ],
+                    if (f.penaltyHome != null && f.penaltyAway != null) ...[
+                      const SizedBox(height: 4),
+                      Text('Tizenegyesek: ${f.penaltyHome} - ${f.penaltyAway}',
+                          style: const TextStyle(fontSize: 12)),
+                    ],
+                    if (d != null && d.homeStadium.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        d.homeCity.isEmpty
+                            ? '🏟 ${d.homeStadium}'
+                            : '🏟 ${d.homeStadium}, ${d.homeCity}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                    if (d != null &&
+                        (d.homeCoach.isNotEmpty || d.awayCoach.isNotEmpty)) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Edzők: ${d.homeCoach.isEmpty ? '–' : d.homeCoach}'
+                        '  |  ${d.awayCoach.isEmpty ? '–' : d.awayCoach}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
                   ],
                 ),
-                const SizedBox(height: 12),
-                ...last.map(
-                  (m) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Text(
-                      '${m.date}  ${m.homeTeam} ${m.homeScore} - ${m.awayScore} ${m.awayTeam}',
-                      style: const TextStyle(fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Események
+            if (!f.isScheduled) ...[
+              _title('Események'),
+              _async(detail, (dd) {
+                final events = [...(dd?.events ?? const <FixtureEvent>[])]
+                  ..sort((a, b) => a.sortKey.compareTo(b.sortKey));
+                if (events.isEmpty) return const Text('Nincs esemény.');
+                return Column(
+                  children: events.map((e) {
+                    final home = e.side == 'home';
+                    final text = Text('${e.icon} ${e.minute} ${e.player}',
+                        style: const TextStyle(fontSize: 13));
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Row(
+                        children: [
+                          Expanded(
+                              child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: home ? text : const SizedBox())),
+                          Expanded(
+                              child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: home ? const SizedBox() : text)),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                );
+              }),
+              const SizedBox(height: 24),
+
+              // Statisztika
+              _title('Statisztika'),
+              _StatsSection(fixtureId: f.id),
+              const SizedBox(height: 24),
+            ],
+
+            // Tabella + forma (egy hívásból)
+            standings.when(
+              loading: () => const SizedBox.shrink(),
+              error: (_, __) => const SizedBox.shrink(),
+              data: (t) {
+                final home = t.rowOf(f.homeId);
+                final away = t.rowOf(f.awayId);
+                if (home == null && away == null) return const SizedBox.shrink();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _title('Tabella'),
+                    _TableCard(home: home, away: away),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        icon: const Icon(Icons.leaderboard_outlined, size: 18),
+                        label: const Text('Teljes tabella'),
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => StandingsScreen(
+                              leagueId: f.leagueId,
+                              title: leagueHu(f.leagueName),
+                              highlight: {f.homeId, f.awayId},
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _title('Forma (utolsó meccsek)'),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                            child: _FormColumn(
+                                f.homeLabel, home?.form ?? const [])),
+                        const SizedBox(width: 12),
+                        Expanded(
+                            child: _FormColumn(
+                                f.awayLabel, away?.form ?? const [])),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                );
+              },
+            ),
+
+            // H2H
+            _title('Egymás ellen (utolsó 6)'),
+            _async(h2h, (list) {
+              final done = list.where((m) => m.isFinished && m.hasScore).toList()
+                ..sort((a, b) => b.date.compareTo(a.date));
+              final last = done.take(6).toList();
+              if (last.isEmpty) {
+                return const Text('Nincs korábbi egymás elleni meccs.');
+              }
+              int hw = 0, dr = 0, aw = 0;
+              for (final m in last) {
+                if (m.homeScore == m.awayScore) {
+                  dr++;
+                } else {
+                  final winnerId =
+                      m.homeScore! > m.awayScore! ? m.homeId : m.awayId;
+                  if (winnerId == f.homeId) {
+                    hw++;
+                  } else {
+                    aw++;
+                  }
+                }
+              }
+              return Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _H2HBox('$hw', 'Hazai győzelem'),
+                      _H2HBox('$dr', 'Döntetlen'),
+                      _H2HBox('$aw', 'Vendég győzelem'),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  ...last.map(
+                    (m) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        '${m.date}  ${m.homeTeam} ${m.homeScore} - ${m.awayScore} ${m.awayTeam}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
                     ),
                   ),
+                ],
+              );
+            }),
+            const SizedBox(height: 16),
+
+            // Összeállítás (csak megnyitáskor tölt)
+            _LineupsSection(fixtureId: f.id, home: f.homeLabel, away: f.awayLabel),
+            const SizedBox(height: 16),
+
+            // Szöglet megjegyzés
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest
+                    .withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Szöglet-statisztikát a SportAPI nem szolgáltat, ezért itt nem jelenik meg.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== FEJLÉC: CSAPAT + CSILLAG ====================
+class _TeamBlock extends StatelessWidget {
+  final int id;
+  final String name;
+  final bool isFav;
+  final VoidCallback onToggle;
+
+  const _TeamBlock({
+    required this.id,
+    required this.name,
+    required this.isFav,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        TeamLogo(teamId: id, size: 40, padRight: false),
+        Text(
+          name,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+        ),
+        IconButton(
+          tooltip: isFav ? 'Eltávolítás a kedvencekből' : 'Kedvencnek jelölöm',
+          visualDensity: VisualDensity.compact,
+          icon: Icon(
+            isFav ? Icons.star : Icons.star_border,
+            color: isFav ? Colors.amber : null,
+          ),
+          onPressed: onToggle,
+        ),
+      ],
+    );
+  }
+}
+
+// ==================== STATISZTIKA ====================
+const List<(String, String, bool)> _statRows = [
+  ('shots', 'Lövések', false),
+  ('shots_on_target', 'Kapura lövés', false),
+  ('fouls', 'Szabálytalanságok', false),
+  ('total_passes', 'Passzok', false),
+  ('pass_accuracy', 'Passzpontosság', true),
+  ('tackles', 'Szerelések', false),
+  ('tackle_success', 'Szerelés-hatékonyság', true),
+  ('saves', 'Védések', false),
+  ('yellow_cards', 'Sárga lapok', false),
+];
+
+class _StatsSection extends ConsumerWidget {
+  final int fixtureId;
+  const _StatsSection({required this.fixtureId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final stats = ref.watch(statsProvider(fixtureId));
+    return stats.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, _) =>
+          Text(errorText(e), style: const TextStyle(color: Colors.red)),
+      data: (s) {
+        if (s == null) {
+          return const Text('Ehhez a meccshez még nincs elérhető statisztika.');
+        }
+        final rows = <Widget>[];
+        for (final r in _statRows) {
+          final h = s.home[r.$1];
+          final a = s.away[r.$1];
+          if (h == null && a == null) continue;
+          rows.add(_StatBar(
+            label: r.$2,
+            home: h ?? 0,
+            away: a ?? 0,
+            percent: r.$3,
+          ));
+        }
+        if (rows.isEmpty) {
+          return const Text('Ehhez a meccshez még nincs elérhető statisztika.');
+        }
+        return Column(children: rows);
+      },
+    );
+  }
+}
+
+class _StatBar extends StatelessWidget {
+  final String label;
+  final num home;
+  final num away;
+  final bool percent;
+
+  const _StatBar({
+    required this.label,
+    required this.home,
+    required this.away,
+    required this.percent,
+  });
+
+  String _fmt(num v) {
+    final t = v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
+    return percent ? '$t%' : t;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final hFlex = math.max(1, (home * 10).round());
+    final aFlex = math.max(1, (away * 10).round());
+    final hLead = home >= away;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 46,
+            child: Text(_fmt(home),
+                style: TextStyle(
+                    fontWeight: hLead ? FontWeight.bold : FontWeight.w500)),
+          ),
+          Expanded(
+            child: Column(
+              children: [
+                Text(label, style: const TextStyle(fontSize: 12)),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: hFlex,
+                      child: Container(
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 3),
+                    Expanded(
+                      flex: aFlex,
+                      child: Container(
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: scheme.tertiary,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
-            );
-          }),
-
-          const SizedBox(height: 24),
-
-          // Szöglet megjegyzés
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .surfaceContainerHighest
-                  .withOpacity(0.5),
-              borderRadius: BorderRadius.circular(12),
             ),
-            child: const Text(
-              'Szöglet-statisztikát a SportAPI nem szolgáltat, ezért itt nem jelenik meg.',
-              style: TextStyle(fontSize: 12),
-            ),
+          ),
+          SizedBox(
+            width: 46,
+            child: Text(_fmt(away),
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                    fontWeight: hLead ? FontWeight.w500 : FontWeight.bold)),
           ),
         ],
       ),
@@ -247,10 +540,71 @@ class MatchDetailScreen extends ConsumerWidget {
   }
 }
 
-class _FormRow extends StatelessWidget {
+// ==================== TABELLA ====================
+class _TableCard extends StatelessWidget {
+  final TeamRow? home;
+  final TeamRow? away;
+  const _TableCard({required this.home, required this.away});
+
+  Widget _row(TeamRow? r, String fallback) {
+    if (r == null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Text('$fallback: nincs tabella-adat',
+            style: const TextStyle(fontSize: 12)),
+      );
+    }
+    final gd = r.goalDiff >= 0 ? '+${r.goalDiff}' : '${r.goalDiff}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 30,
+            child: Text('${r.position}.',
+                style: const TextStyle(fontWeight: FontWeight.w800)),
+          ),
+          Expanded(
+            child: Text(r.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          Text(
+            '${r.played} m  ${r.won}-${r.draw}-${r.lost}  $gd',
+            style: const TextStyle(fontSize: 12),
+          ),
+          const SizedBox(width: 10),
+          Text('${r.points} p',
+              style: const TextStyle(fontWeight: FontWeight.w800)),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Column(
+          children: [
+            _row(home, 'Hazai'),
+            const Divider(height: 1),
+            _row(away, 'Vendég'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== FORMA ====================
+class _FormColumn extends StatelessWidget {
   final String team;
-  final List<String> form;
-  const _FormRow(this.team, this.form);
+  final List<FormMatch> form;
+  const _FormColumn(this.team, this.form);
 
   String _label(String r) {
     switch (r) {
@@ -265,31 +619,34 @@ class _FormRow extends StatelessWidget {
     }
   }
 
+  String _shortDate(String d) =>
+      d.length >= 10 ? '${d.substring(5, 7)}.${d.substring(8, 10)}.' : d;
+
   @override
   Widget build(BuildContext context) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(team,
-            style: const TextStyle(fontSize: 12),
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
             overflow: TextOverflow.ellipsis),
         const SizedBox(height: 6),
         if (form.isEmpty)
           const Text('–')
-        else
+        else ...[
           Wrap(
-            alignment: WrapAlignment.center,
             spacing: 4,
             runSpacing: 4,
-            children: form.map((r) {
-              final color = r == 'W'
+            children: form.map((m) {
+              final color = m.result == 'W'
                   ? Colors.green
-                  : (r == 'D' ? Colors.grey : Colors.red);
+                  : (m.result == 'D' ? Colors.grey : Colors.red);
               return Container(
                 width: 26,
                 height: 26,
                 decoration: BoxDecoration(color: color, shape: BoxShape.circle),
                 child: Center(
-                  child: Text(_label(r),
+                  child: Text(_label(m.result),
                       style: const TextStyle(
                           color: Colors.white,
                           fontSize: 10,
@@ -298,6 +655,19 @@ class _FormRow extends StatelessWidget {
               );
             }).toList(),
           ),
+          const SizedBox(height: 8),
+          for (final m in form.reversed)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 1),
+              child: Text(
+                '${_shortDate(m.date)} ${m.isHome ? 'vs' : '@'} ${m.opponent}  '
+                '${m.homeScore ?? '-'}-${m.awayScore ?? '-'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11),
+              ),
+            ),
+        ],
       ],
     );
   }
@@ -316,6 +686,109 @@ class _H2HBox extends StatelessWidget {
             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
         Text(label, style: const TextStyle(fontSize: 11)),
       ],
+    );
+  }
+}
+
+// ==================== ÖSSZEÁLLÍTÁS ====================
+class _LineupsSection extends ConsumerStatefulWidget {
+  final int fixtureId;
+  final String home;
+  final String away;
+  const _LineupsSection({
+    required this.fixtureId,
+    required this.home,
+    required this.away,
+  });
+
+  @override
+  ConsumerState<_LineupsSection> createState() => _LineupsSectionState();
+}
+
+class _LineupsSectionState extends ConsumerState<_LineupsSection> {
+  bool _opened = false;
+
+  Widget _team(String name, TeamLineup l) {
+    Widget player(LineupPlayer p) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 24,
+                child: Text(p.shirt?.toString() ?? '',
+                    style: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w700)),
+              ),
+              Expanded(
+                child: Text(
+                  p.isCaptain ? '${p.name} (C)' : p.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(name,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+            overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 4),
+        ...l.starters.map(player),
+        if (l.subs.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          const Text('Cserék',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 2),
+          ...l.subs.map(player),
+        ],
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: ExpansionTile(
+        title: const Text('Összeállítás',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        shape: const Border(),
+        collapsedShape: const Border(),
+        onExpansionChanged: (open) {
+          if (open && !_opened) setState(() => _opened = true);
+        },
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          if (_opened)
+            ref.watch(lineupsProvider(widget.fixtureId)).when(
+                  loading: () => const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                  error: (e, _) => Text(errorText(e),
+                      style: const TextStyle(color: Colors.red)),
+                  data: (l) {
+                    if (l == null) {
+                      return const Text(
+                          'Az összeállítás még nem elérhető ehhez a meccshez.');
+                    }
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: _team(widget.home, l.home)),
+                        const SizedBox(width: 12),
+                        Expanded(child: _team(widget.away, l.away)),
+                      ],
+                    );
+                  },
+                ),
+        ],
+      ),
     );
   }
 }
