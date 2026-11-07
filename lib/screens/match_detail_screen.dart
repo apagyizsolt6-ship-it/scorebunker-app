@@ -252,6 +252,19 @@ class _FormRow extends StatelessWidget {
   final List<String> form;
   const _FormRow(this.team, this.form);
 
+  String _label(String r) {
+    switch (r) {
+      case 'W':
+        return 'Gy';
+      case 'D':
+        return 'D';
+      case 'L':
+        return 'V';
+      default:
+        return r;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -272,14 +285,14 @@ class _FormRow extends StatelessWidget {
                   ? Colors.green
                   : (r == 'D' ? Colors.grey : Colors.red);
               return Container(
-                width: 22,
-                height: 22,
+                width: 26,
+                height: 26,
                 decoration: BoxDecoration(color: color, shape: BoxShape.circle),
                 child: Center(
-                  child: Text(r,
+                  child: Text(_label(r),
                       style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 11,
+                          fontSize: 10,
                           fontWeight: FontWeight.bold)),
                 ),
               );
