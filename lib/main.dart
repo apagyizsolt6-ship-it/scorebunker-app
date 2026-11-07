@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'models/match.dart';
-import 'data/mock_data.dart';
+import 'package:intl/intl.dart';
+
+import 'models/fixture.dart';
+import 'providers.dart';
+import 'screens/api_key_screen.dart';
 import 'screens/match_detail_screen.dart';
+import 'services/sport_api.dart';
 
 void main() {
-  runApp(const ScorebunkerApp());
+  runApp(const ProviderScope(child: ScorebunkerApp()));
 }
 
 class ScorebunkerApp extends StatelessWidget {
@@ -57,9 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: _pages[_currentIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() => _currentIndex = index);
-        },
+        onDestinationSelected: (index) => setState(() => _currentIndex = index),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.sports_soccer_outlined),
@@ -87,28 +90,160 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ==================== MECCSEK ====================
-class MatchesPage extends StatelessWidget {
-  const MatchesPage({super.key});
+void openApiKeyScreen(BuildContext context) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => const ApiKeyScreen()),
+  );
+}
+
+// ==================== KÖZÖS SEGÉDEK ====================
+class _NoKeyView extends StatelessWidget {
+  const _NoKeyView();
 
   @override
   Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.vpn_key_outlined, size: 48),
+            const SizedBox(height: 12),
+            const Text(
+              'Az adatok megjelenítéséhez add meg a SportAPI kulcsodat.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () => openApiKeyScreen(context),
+              child: const Text('API-kulcs megadása'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorView extends StatelessWidget {
+  final Object error;
+  final VoidCallback onRetry;
+  const _ErrorView({required this.error, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final isAuth = error is ApiException && (error as ApiException).status == 401;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 48),
+            const SizedBox(height: 12),
+            Text(errorText(error), textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            if (isAuth)
+              FilledButton(
+                onPressed: () => openApiKeyScreen(context),
+                child: const Text('API-kulcs módosítása'),
+              )
+            else
+              FilledButton(onPressed: onRetry, child: const Text('Újra')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== MECCSEK ====================
+class MatchesPage extends ConsumerWidget {
+  const MatchesPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final keyState = ref.watch(apiKeyProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Scorebunker'),
         centerTitle: true,
         actions: [
-          IconButton(icon: const Icon(Icons.search), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => ref.invalidate(fixturesProvider),
+          ),
         ],
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(48),
+          child: _DateBar(),
+        ),
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: mockMatches.length,
-        itemBuilder: (context, index) {
-          final match = mockMatches[index];
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: MatchCard(match: match),
+      body: keyState.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('$e')),
+        data: (k) {
+          if (k == null || k.isEmpty) return const _NoKeyView();
+          final fixtures = ref.watch(fixturesProvider);
+          return fixtures.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => _ErrorView(
+              error: e,
+              onRetry: () => ref.invalidate(fixturesProvider),
+            ),
+            data: (list) {
+              if (list.isEmpty) {
+                return const Center(child: Text('Nincs meccs ezen a napon.'));
+              }
+              final sorted = [...list]..sort((a, b) {
+                  final c = a.leagueName.compareTo(b.leagueName);
+                  if (c != 0) return c;
+                  return (a.kickoff ?? DateTime(0))
+                      .compareTo(b.kickoff ?? DateTime(0));
+                });
+              final items = <Object>[];
+              String? last;
+              for (final m in sorted) {
+                if (m.leagueName != last) {
+                  items.add(m.leagueName);
+                  last = m.leagueName;
+                }
+                items.add(m);
+              }
+              return RefreshIndicator(
+                onRefresh: () async {
+                  ref.invalidate(fixturesProvider);
+                  await ref.read(fixturesProvider.future);
+                },
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    if (item is String) {
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 8, bottom: 8),
+                        child: Text(
+                          item,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      );
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: MatchCard(fixture: item as Fixture),
+                    );
+                  },
+                ),
+              );
+            },
           );
         },
       ),
@@ -116,14 +251,60 @@ class MatchesPage extends StatelessWidget {
   }
 }
 
+class _DateBar extends ConsumerWidget {
+  const _DateBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final d = ref.watch(selectedDateProvider);
+    void setDate(DateTime x) =>
+        ref.read(selectedDateProvider.notifier).state = x;
+    final now = DateTime.now();
+    final isToday = d.year == now.year && d.month == now.month && d.day == now.day;
+    final label = DateFormat('yyyy.MM.dd').format(d) + (isToday ? ' (ma)' : '');
+
+    return SizedBox(
+      height: 48,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left),
+            onPressed: () => setDate(DateTime(d.year, d.month, d.day - 1)),
+          ),
+          TextButton(
+            onPressed: () async {
+              final p = await showDatePicker(
+                context: context,
+                initialDate: d,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2030),
+              );
+              if (p != null) setDate(p);
+            },
+            child: Text(label),
+          ),
+          IconButton(
+            icon: const Icon(Icons.chevron_right),
+            onPressed: () => setDate(DateTime(d.year, d.month, d.day + 1)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class MatchCard extends StatelessWidget {
-  final Match match;
-  const MatchCard({super.key, required this.match});
+  final Fixture fixture;
+  const MatchCard({super.key, required this.fixture});
 
   @override
   Widget build(BuildContext context) {
+    final f = fixture;
+    final scheme = Theme.of(context).colorScheme;
     return Card(
       elevation: 0,
+      margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.15)),
@@ -133,85 +314,50 @@ class MatchCard extends StatelessWidget {
         onTap: () {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) => MatchDetailScreen(match: match),
-            ),
+            MaterialPageRoute(builder: (_) => MatchDetailScreen(fixture: f)),
           );
         },
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.all(14),
+          child: Row(
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    match.league,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
+              SizedBox(
+                width: 52,
+                child: Text(
+                  f.timeLabel,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: f.isLive ? Colors.red : scheme.onSurfaceVariant,
                   ),
-                  Text(match.time, style: const TextStyle(fontSize: 13)),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      match.homeTeam,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-                    ),
-                  ),
-                  const Text('vs', style: TextStyle(color: Colors.grey)),
-                  Expanded(
-                    child: Text(
-                      match.awayTeam,
-                      textAlign: TextAlign.end,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  _CornerChip(label: 'Hazai szöglet', value: match.homeCornersAvg),
-                  const SizedBox(width: 8),
-                  _CornerChip(label: 'Vendég szöglet', value: match.awayCornersAvg),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.35),
-                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Row(
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.local_fire_department, size: 18, color: Colors.orange.shade700),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        match.mainTrend,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                      ),
-                    ),
-                    Text(
-                      '${match.trendStrength}/10',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
+                    Text(f.homeTeam,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    Text(f.awayTeam,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
                   ],
                 ),
               ),
+              if (f.hasScore)
+                Column(
+                  children: [
+                    Text('${f.homeScore}',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 4),
+                    Text('${f.awayScore}',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 16)),
+                  ],
+                ),
             ],
           ),
         ),
@@ -220,36 +366,7 @@ class MatchCard extends StatelessWidget {
   }
 }
 
-class _CornerChip extends StatelessWidget {
-  final String label;
-  final double value;
-  const _CornerChip({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          children: [
-            Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-            const SizedBox(height: 2),
-            Text(
-              value.toStringAsFixed(1),
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ==================== TRENDEK ====================
+// ==================== TRENDEK (egyelőre statikus) ====================
 class TrendsPage extends StatelessWidget {
   const TrendsPage({super.key});
 
@@ -273,7 +390,8 @@ class TrendsPage extends StatelessWidget {
             margin: const EdgeInsets.only(bottom: 12),
             child: ListTile(
               contentPadding: const EdgeInsets.all(16),
-              title: Text(t['title'] as String, style: const TextStyle(fontWeight: FontWeight.w600)),
+              title: Text(t['title'] as String,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
               subtitle: Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Text('${t['desc']} • ${t['matches']} meccs'),
@@ -297,18 +415,20 @@ class TrendsPage extends StatelessWidget {
 }
 
 // ==================== SZELVÉNY VARÁZSLÓ ====================
-class SlipWizardPage extends StatefulWidget {
+class SlipWizardPage extends ConsumerStatefulWidget {
   const SlipWizardPage({super.key});
 
   @override
-  State<SlipWizardPage> createState() => _SlipWizardPageState();
+  ConsumerState<SlipWizardPage> createState() => _SlipWizardPageState();
 }
 
-class _SlipWizardPageState extends State<SlipWizardPage> {
-  final Set<String> selected = {};
+class _SlipWizardPageState extends ConsumerState<SlipWizardPage> {
+  final Set<int> selected = {};
 
   @override
   Widget build(BuildContext context) {
+    final fixtures = ref.watch(fixturesProvider);
+
     return Scaffold(
       appBar: AppBar(title: const Text('Szelvényvarázsló'), centerTitle: true),
       body: Column(
@@ -316,35 +436,55 @@ class _SlipWizardPageState extends State<SlipWizardPage> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              'Válassz ki trendeket, és a varázsló összeállítja a szelvényt',
+              'Válaszd ki a mérkőzéseket, és a varázsló összeállítja a szelvényt',
               style: TextStyle(color: Theme.of(context).hintColor),
             ),
           ),
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: mockMatches.map((match) {
-                final isSelected = selected.contains(match.id);
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  color: isSelected ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3) : null,
-                  child: CheckboxListTile(
-                    value: isSelected,
-                    onChanged: (val) {
-                      setState(() {
-                        if (val == true) {
-                          selected.add(match.id);
-                        } else {
-                          selected.remove(match.id);
-                        }
-                      });
-                    },
-                    title: Text('${match.homeTeam} - ${match.awayTeam}'),
-                    subtitle: Text(match.mainTrend),
-                    secondary: Text('${match.trendStrength}/10'),
-                  ),
+            child: fixtures.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => _ErrorView(
+                error: e,
+                onRetry: () => ref.invalidate(fixturesProvider),
+              ),
+              data: (list) {
+                final open = list.where((m) => m.isScheduled).toList()
+                  ..sort((a, b) => (a.kickoff ?? DateTime(0))
+                      .compareTo(b.kickoff ?? DateTime(0)));
+                if (open.isEmpty) {
+                  return const Center(
+                      child: Text('Nincs kiválasztható meccs ezen a napon.'));
+                }
+                return ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  children: open.map((m) {
+                    final isSelected = selected.contains(m.id);
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      color: isSelected
+                          ? Theme.of(context)
+                              .colorScheme
+                              .primaryContainer
+                              .withOpacity(0.3)
+                          : null,
+                      child: CheckboxListTile(
+                        value: isSelected,
+                        onChanged: (val) {
+                          setState(() {
+                            if (val == true) {
+                              selected.add(m.id);
+                            } else {
+                              selected.remove(m.id);
+                            }
+                          });
+                        },
+                        title: Text('${m.homeTeam} - ${m.awayTeam}'),
+                        subtitle: Text('${m.leagueName} • ${m.timeLabel}'),
+                      ),
+                    );
+                  }).toList(),
                 );
-              }).toList(),
+              },
             ),
           ),
           SafeArea(
@@ -360,7 +500,8 @@ class _SlipWizardPageState extends State<SlipWizardPage> {
                             context: context,
                             builder: (_) => AlertDialog(
                               title: const Text('Szelvény összeállítva'),
-                              content: Text('${selected.length} esemény kiválasztva.\n\n(Később ide jön az odds és a kombináció)'),
+                              content: Text(
+                                  '${selected.length} esemény kiválasztva.\n\n(Később ide jön az odds és a kombináció)'),
                               actions: [
                                 TextButton(
                                   onPressed: () => Navigator.pop(context),
@@ -382,11 +523,18 @@ class _SlipWizardPageState extends State<SlipWizardPage> {
 }
 
 // ==================== PROFIL ====================
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
 
+  String _mask(String? k) {
+    if (k == null || k.isEmpty) return 'Nincs megadva';
+    if (k.length <= 12) return '••••••••';
+    return '${k.substring(0, 8)}…${k.substring(k.length - 4)}';
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final key = ref.watch(apiKeyProvider).valueOrNull;
     return Scaffold(
       appBar: AppBar(title: const Text('Profil'), centerTitle: true),
       body: ListView(
@@ -399,9 +547,11 @@ class ProfilePage extends StatelessWidget {
           ),
           const Divider(),
           ListTile(
-            leading: const Icon(Icons.settings),
-            title: const Text('Beállítások'),
-            onTap: () {},
+            leading: const Icon(Icons.vpn_key_outlined),
+            title: const Text('API-kulcs'),
+            subtitle: Text(_mask(key)),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => openApiKeyScreen(context),
           ),
           ListTile(
             leading: const Icon(Icons.info_outline),
