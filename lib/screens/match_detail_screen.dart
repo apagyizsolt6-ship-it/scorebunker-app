@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
+import '../data/league_catalog.dart';
 import '../models/fixture.dart';
 import '../providers.dart';
 import '../services/sport_api.dart';
@@ -16,9 +18,41 @@ class MatchDetailScreen extends ConsumerWidget {
         padding: EdgeInsets.all(16),
         child: Center(child: CircularProgressIndicator()),
       ),
-      error: (e, _) => Text(errorText(e), style: const TextStyle(color: Colors.red)),
+      error: (e, _) =>
+          Text(errorText(e), style: const TextStyle(color: Colors.red)),
       data: builder,
     );
+  }
+
+  String _leagueTitle(Fixture f) {
+    final top = topLeagueOf(f);
+    final name = top != null ? top.nameHu : leagueHu(f.leagueName);
+    if (top != null || f.leagueZone.isEmpty) return name;
+    return '${countryHu(f.leagueZone)} • $name';
+  }
+
+  String _statusText(Fixture f) {
+    switch (f.status) {
+      case 'Scheduled':
+        if (f.kickoff == null) return 'Kezdés: ${f.date}';
+        return DateFormat('yyyy.MM.dd HH:mm').format(f.kickoff!);
+      case 'LIVE':
+        return f.minute == 'HT' ? 'Félidő' : "Élő ${f.minute ?? ''}".trim();
+      case 'FT':
+        return 'Vége';
+      case 'AET':
+        return 'Vége (hosszabbítás után)';
+      case 'PENS':
+        return 'Vége (tizenegyesekkel)';
+      case 'Postponed':
+        return 'Elhalasztva';
+      case 'Cancelled':
+        return 'Törölve';
+      case 'Suspended':
+        return 'Felfüggesztve';
+      default:
+        return f.status;
+    }
   }
 
   @override
@@ -41,11 +75,15 @@ class MatchDetailScreen extends ConsumerWidget {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  Text(f.leagueName,
-                      style: TextStyle(color: Theme.of(context).colorScheme.primary)),
+                  Text(
+                    _leagueTitle(f),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary),
+                  ),
                   const SizedBox(height: 8),
                   Text(
-                    f.timeLabel,
+                    _statusText(f),
                     style: TextStyle(
                       fontSize: 13,
                       color: f.isLive ? Colors.red : null,
@@ -126,9 +164,11 @@ class MatchDetailScreen extends ConsumerWidget {
             return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(child: _FormRow(f.homeTeam, map[f.homeId] ?? const [])),
+                Expanded(
+                    child: _FormRow(f.homeTeam, map[f.homeId] ?? const [])),
                 const SizedBox(width: 12),
-                Expanded(child: _FormRow(f.awayTeam, map[f.awayId] ?? const [])),
+                Expanded(
+                    child: _FormRow(f.awayTeam, map[f.awayId] ?? const [])),
               ],
             );
           }),
@@ -143,13 +183,16 @@ class MatchDetailScreen extends ConsumerWidget {
             final done = list.where((m) => m.isFinished && m.hasScore).toList()
               ..sort((a, b) => b.date.compareTo(a.date));
             final last = done.take(6).toList();
-            if (last.isEmpty) return const Text('Nincs korábbi egymás elleni meccs.');
+            if (last.isEmpty) {
+              return const Text('Nincs korábbi egymás elleni meccs.');
+            }
             int hw = 0, d = 0, aw = 0;
             for (final m in last) {
               if (m.homeScore == m.awayScore) {
                 d++;
               } else {
-                final winnerId = m.homeScore! > m.awayScore! ? m.homeId : m.awayId;
+                final winnerId =
+                    m.homeScore! > m.awayScore! ? m.homeId : m.awayId;
                 if (winnerId == f.homeId) {
                   hw++;
                 } else {
@@ -187,7 +230,10 @@ class MatchDetailScreen extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+              color: Theme.of(context)
+                  .colorScheme
+                  .surfaceContainerHighest
+                  .withOpacity(0.5),
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Text(
@@ -210,7 +256,9 @@ class _FormRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(team, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+        Text(team,
+            style: const TextStyle(fontSize: 12),
+            overflow: TextOverflow.ellipsis),
         const SizedBox(height: 6),
         if (form.isEmpty)
           const Text('–')
@@ -220,8 +268,9 @@ class _FormRow extends StatelessWidget {
             spacing: 4,
             runSpacing: 4,
             children: form.map((r) {
-              final color =
-                  r == 'W' ? Colors.green : (r == 'D' ? Colors.grey : Colors.red);
+              final color = r == 'W'
+                  ? Colors.green
+                  : (r == 'D' ? Colors.grey : Colors.red);
               return Container(
                 width: 22,
                 height: 22,
@@ -250,7 +299,8 @@ class _H2HBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+        Text(value,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
         Text(label, style: const TextStyle(fontSize: 11)),
       ],
     );
