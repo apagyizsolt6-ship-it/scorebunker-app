@@ -6,6 +6,8 @@ class Fixture {
   final int awayId;
   final int leagueId;
   final String leagueName;
+  final String leagueZone;
+  final String leagueGeo;
   final String homeTeam;
   final String awayTeam;
   final String status;
@@ -23,6 +25,8 @@ class Fixture {
     required this.awayId,
     required this.leagueId,
     required this.leagueName,
+    required this.leagueZone,
+    required this.leagueGeo,
     required this.homeTeam,
     required this.awayTeam,
     required this.status,
@@ -58,6 +62,8 @@ class Fixture {
       awayId: i(j['away_id']) ?? 0,
       leagueId: i(j['league_id']) ?? 0,
       leagueName: (j['league_name'] ?? '') as String,
+      leagueZone: (j['league_zone'] ?? '') as String,
+      leagueGeo: (j['league_geo'] ?? '') as String,
       homeTeam: (j['home_team'] ?? '') as String,
       awayTeam: (j['away_team'] ?? '') as String,
       status: (j['status'] ?? '') as String,
