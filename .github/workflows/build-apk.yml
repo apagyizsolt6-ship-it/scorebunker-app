@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -25,6 +25,12 @@ jobs:
         with:
           channel: 'stable'
           cache: true
+
+      - name: Create Flutter project structure
+        run: |
+          flutter create . --project-name scorebunker_app --org com.scorebunker
+          # Megtartjuk a saját fájljainkat
+          echo "Flutter project structure generated"
 
       - name: Install dependencies
         run: flutter pub get
