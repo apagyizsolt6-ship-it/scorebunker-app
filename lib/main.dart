@@ -358,7 +358,7 @@ class MatchesPage extends ConsumerWidget {
                               leagueHu(a).compareTo(leagueHu(b)));
                         for (final n in names) {
                           items.add(_LeagueTitle(leagueHu(n)));
-                          items.addAll([...g.leagues[n]!]..sort(_byKick));
+                          items.addAll(<Fixture>[...g.leagues[n]!]..sort(_byKick));
                         }
                       }
                     }
