@@ -30,6 +30,12 @@ final apiProvider = Provider<SportApi?>((ref) {
 
 final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
+/// Keresőmező szövege a Meccsek fülön (csapat / bajnokság / ország).
+final searchQueryProvider = StateProvider<String>((ref) => '');
+
+/// Összecsukott országok (a zóna neve alapján).
+final collapsedCountriesProvider = StateProvider<Set<String>>((ref) => <String>{});
+
 final fixturesProvider = FutureProvider<List<Fixture>>((ref) async {
   final api = ref.watch(apiProvider);
   if (api == null) return [];
