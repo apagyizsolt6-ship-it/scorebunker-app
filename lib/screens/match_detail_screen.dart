@@ -1,16 +1,35 @@
 import 'package:flutter/material.dart';
-import '../models/match.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class MatchDetailScreen extends StatelessWidget {
-  final Match match;
+import '../models/fixture.dart';
+import '../providers.dart';
+import '../services/sport_api.dart';
 
-  const MatchDetailScreen({super.key, required this.match});
+class MatchDetailScreen extends ConsumerWidget {
+  final Fixture fixture;
+
+  const MatchDetailScreen({super.key, required this.fixture});
+
+  Widget _async<T>(AsyncValue<T> v, Widget Function(T) builder) {
+    return v.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, _) => Text(errorText(e), style: const TextStyle(color: Colors.red)),
+      data: builder,
+    );
+  }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final f = fixture;
+    final forms = ref.watch(leagueFormProvider(f.leagueId));
+    final h2h = ref.watch(h2hProvider((f.homeId, f.awayId)));
+
     return Scaffold(
       appBar: AppBar(
-        title: Text('${match.homeTeam} vs ${match.awayTeam}'),
+        title: Text('${f.homeTeam} vs ${f.awayTeam}'),
         centerTitle: true,
       ),
       body: ListView(
@@ -22,90 +41,160 @@ class MatchDetailScreen extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  Text(match.league, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
+                  Text(f.leagueName,
+                      style: TextStyle(color: Theme.of(context).colorScheme.primary)),
                   const SizedBox(height: 8),
-                  Text(match.time, style: const TextStyle(fontSize: 13)),
+                  Text(
+                    f.timeLabel,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: f.isLive ? Colors.red : null,
+                      fontWeight: f.isLive ? FontWeight.bold : null,
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      Expanded(child: Text(match.homeTeam, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
-                      const Text('VS', style: TextStyle(fontWeight: FontWeight.bold)),
-                      Expanded(child: Text(match.awayTeam, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+                      Expanded(
+                        child: Text(f.homeTeam,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 16)),
+                      ),
+                      Text(
+                        f.hasScore ? '${f.homeScore} - ${f.awayScore}' : 'VS',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 20),
+                      ),
+                      Expanded(
+                        child: Text(f.awayTeam,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 16)),
+                      ),
                     ],
                   ),
+                  if (f.penaltyHome != null && f.penaltyAway != null) ...[
+                    const SizedBox(height: 6),
+                    Text('Tizenegyesek: ${f.penaltyHome} - ${f.penaltyAway}',
+                        style: const TextStyle(fontSize: 12)),
+                  ],
                 ],
               ),
             ),
           ),
           const SizedBox(height: 16),
 
-          // Szögletek
-          const Text('Szögletek (utolsó 10 meccs)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          _StatRow('Saját szöglet', match.homeCornersFor, match.awayCornersFor),
-          _StatRow('Engedett szöglet', match.homeCornersAgainst, match.awayCornersAgainst),
-          _StatRow('Összes szöglet átlag', match.homeCornersAvg, match.awayCornersAvg),
-
-          const SizedBox(height: 24),
-
-          // Trend
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.4),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.local_fire_department, color: Colors.orange),
-                const SizedBox(width: 10),
-                Expanded(child: Text(match.mainTrend, style: const TextStyle(fontWeight: FontWeight.w600))),
-                Text('${match.trendStrength}/10', style: const TextStyle(fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 24),
+          // Események
+          if (!f.isScheduled) ...[
+            const Text('Események',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            _async(ref.watch(eventsProvider(f.id)), (events) {
+              if (events.isEmpty) return const Text('Nincs esemény.');
+              return Column(
+                children: events.map((e) {
+                  final home = e.side == 'home';
+                  final text = Text('${e.icon} ${e.minute} ${e.player}',
+                      style: const TextStyle(fontSize: 13));
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        Expanded(
+                            child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: home ? text : const SizedBox())),
+                        Expanded(
+                            child: Align(
+                                alignment: Alignment.centerRight,
+                                child: home ? const SizedBox() : text)),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              );
+            }),
+            const SizedBox(height: 24),
+          ],
 
           // Forma
-          const Text('Forma (utolsó 5)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text('Forma (utolsó meccsek)',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(child: _FormRow(match.homeTeam, match.formHome)),
-              const SizedBox(width: 12),
-              Expanded(child: _FormRow(match.awayTeam, match.formAway)),
-            ],
-          ),
+          _async(forms, (map) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _FormRow(f.homeTeam, map[f.homeId] ?? const [])),
+                const SizedBox(width: 12),
+                Expanded(child: _FormRow(f.awayTeam, map[f.awayId] ?? const [])),
+              ],
+            );
+          }),
 
           const SizedBox(height: 24),
 
           // H2H
-          const Text('Egymás ellen (utolsó 6)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text('Egymás ellen (utolsó 6)',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _H2HBox('${match.h2hHomeWins}', 'Hazai győzelem'),
-              _H2HBox('${match.h2hDraws}', 'Döntetlen'),
-              _H2HBox('${match.h2hAwayWins}', 'Vendég győzelem'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+          _async(h2h, (list) {
+            final done = list.where((m) => m.isFinished && m.hasScore).toList()
+              ..sort((a, b) => b.date.compareTo(a.date));
+            final last = done.take(6).toList();
+            if (last.isEmpty) return const Text('Nincs korábbi egymás elleni meccs.');
+            int hw = 0, d = 0, aw = 0;
+            for (final m in last) {
+              if (m.homeScore == m.awayScore) {
+                d++;
+              } else {
+                final winnerId = m.homeScore! > m.awayScore! ? m.homeId : m.awayId;
+                if (winnerId == f.homeId) {
+                  hw++;
+                } else {
+                  aw++;
+                }
+              }
+            }
+            return Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _H2HBox('$hw', 'Hazai győzelem'),
+                    _H2HBox('$d', 'Döntetlen'),
+                    _H2HBox('$aw', 'Vendég győzelem'),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ...last.map(
+                  (m) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Text(
+                      '${m.date}  ${m.homeTeam} ${m.homeScore} - ${m.awayScore} ${m.awayTeam}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }),
 
-  Widget _StatRow(String label, double home, double away) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          SizedBox(width: 90, child: Text(home.toStringAsFixed(1), textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold))),
-          Expanded(child: Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13))),
-          SizedBox(width: 90, child: Text(away.toStringAsFixed(1), textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold))),
+          const SizedBox(height: 24),
+
+          // Szöglet megjegyzés
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Text(
+              'Szöglet-statisztikát a SportAPI nem szolgáltat, ezért itt nem jelenik meg.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
         ],
       ),
     );
@@ -123,19 +212,30 @@ class _FormRow extends StatelessWidget {
       children: [
         Text(team, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
         const SizedBox(height: 6),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: form.map((r) {
-            Color color = r == 'W' ? Colors.green : (r == 'D' ? Colors.grey : Colors.red);
-            return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              width: 22,
-              height: 22,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              child: Center(child: Text(r, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))),
-            );
-          }).toList(),
-        ),
+        if (form.isEmpty)
+          const Text('–')
+        else
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 4,
+            runSpacing: 4,
+            children: form.map((r) {
+              final color =
+                  r == 'W' ? Colors.green : (r == 'D' ? Colors.grey : Colors.red);
+              return Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                child: Center(
+                  child: Text(r,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold)),
+                ),
+              );
+            }).toList(),
+          ),
       ],
     );
   }
