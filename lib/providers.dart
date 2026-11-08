@@ -355,6 +355,7 @@ final trendsProvider = FutureProvider<TrendsResult>((ref) async {
 
   final trends = <Trend>[];
   final estimateLog = <EstimateLogEntry>[];
+  final estimates = <FixtureEstimate>[];
   var matches = 0;
   var leagues = 0;
   final seenLeagues = <int>{};
@@ -367,6 +368,7 @@ final trendsProvider = FutureProvider<TrendsResult>((ref) async {
     trends.addAll(trendsFor(f, t.rowOf(f.homeId), t.rowOf(f.awayId)));
     final est = estimateMatch(t, f.homeId, f.awayId);
     if (est != null) {
+      estimates.add(FixtureEstimate(f, est));
       estimateLog.add(EstimateLogEntry(
         fixtureId: f.id,
         date: f.date,
@@ -403,6 +405,7 @@ final trendsProvider = FutureProvider<TrendsResult>((ref) async {
 
   return TrendsResult(
     trends: trends,
+    estimates: estimates,
     matches: matches,
     leagues: leagues,
     failed: failed,
