@@ -33,8 +33,36 @@ jobs:
 
       - name: Add INTERNET permission (release build)
         run: |
-          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' android/app/src/main/AndroidManifest.xml
+          sed -i 's|<application>|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' android/app/src/main/AndroidManifest.xml
           grep -n "INTERNET" android/app/src/main/AndroidManifest.xml
+
+      - name: Enable core library desugaring (required by flutter_local_notifications)
+        run: |
+          # Modern Flutter projects use build.gradle.kts
+          if [ -f android/app/build.gradle.kts ]; then
+            # Enable desugaring in compileOptions
+            sed -i '/compileOptions {/a\        isCoreLibraryDesugaringEnabled = true' android/app/build.gradle.kts
+
+            # Add the desugar dependency (create dependencies block if missing)
+            if ! grep -q "dependencies {" android/app/build.gradle.kts; then
+              echo -e "\ndependencies {\n    coreLibraryDesugaring(\"com.android.tools:desugar_jdk_libs:2.1.4\")\n}" >> android/app/build.gradle.kts
+            else
+              sed -i '/dependencies {/a\    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' android/app/build.gradle.kts
+            fi
+            echo "Desugaring enabled in build.gradle.kts"
+          elif [ -f android/app/build.gradle ]; then
+            # Fallback for older Groovy-based projects
+            sed -i '/compileOptions {/a\        coreLibraryDesugaringEnabled true' android/app/build.gradle
+            if ! grep -q "dependencies {" android/app/build.gradle; then
+              echo -e "\ndependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'\n}" >> android/app/build.gradle
+            else
+              sed -i '/dependencies {/a\    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"' android/app/build.gradle
+            fi
+            echo "Desugaring enabled in build.gradle"
+          else
+            echo "ERROR: No build.gradle or build.gradle.kts found!"
+            exit 1
+          fi
 
       - name: Install dependencies
         run: flutter pub get
