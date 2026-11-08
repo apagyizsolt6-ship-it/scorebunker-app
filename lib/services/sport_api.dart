@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../models/fixture.dart';
 import '../models/leaders.dart';
 import '../models/match_extras.dart';
+import '../models/player_stats.dart';
 import '../models/standing.dart';
 import '../models/team.dart';
 import 'disk_cache.dart';
@@ -182,8 +183,12 @@ class SportApi {
           if (x is Map<String, dynamic>) Fixture.fromJson(x),
       ];
 
-  Future<List<Fixture>> fixturesByDate(DateTime d) async {
-    final j = await _get('/fixtures/date/${DateFormat('yyyy-MM-dd').format(d)}');
+  /// `ttl`: ha meg van adva, a lemezes gyorsítótárból is jöhet a lista.
+  Future<List<Fixture>> fixturesByDate(DateTime d, {Duration? ttl}) async {
+    final j = await _get(
+      '/fixtures/date/${DateFormat('yyyy-MM-dd').format(d)}',
+      ttl: ttl,
+    );
     return _fixtures(j['data']);
   }
 
@@ -281,5 +286,13 @@ class SportApi {
         for (final x in d)
           if (x is Map) Trophy.fromJson(Map<String, dynamic>.from(x)),
     ];
+  }
+
+  /// Játékos szezon-statisztikája név + csapat (+ mezszám) alapján.
+  Future<PlayerStats?> playerStats(String name, int teamId, int? shirt) async {
+    final q = 'name=${Uri.encodeComponent(name)}&team_id=$teamId'
+        '${shirt == null ? '' : '&shirt_number=$shirt'}';
+    final j = await _get('/players/stats?$q', ttl: const Duration(hours: 6));
+    return PlayerStats.fromJson(j);
   }
 }
