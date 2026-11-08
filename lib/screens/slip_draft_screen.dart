@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/league_catalog.dart';
 import '../models/slip.dart';
 import '../providers.dart';
+import '../services/estimator.dart';
+import '../widgets/estimate_line.dart';
 
 /// A most épített szelvény: odds-ok szerkesztése, tét, várható nyeremény, mentés.
 class SlipDraftScreen extends ConsumerStatefulWidget {
@@ -82,6 +84,24 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
     final stake = _stakeValue;
     final canSave = draft.isNotEmpty && allOdds && stake != null;
 
+    // Becsült együttes esély (a meccseket függetlennek tekintve).
+    var combined = 1.0;
+    var haveAllEstimates = draft.isNotEmpty;
+    for (final l in draft.values) {
+      final est = ref
+          .watch(estimateProvider(
+              (l.fixture.leagueId, l.fixture.homeId, l.fixture.awayId)))
+          .valueOrNull;
+      if (est == null) {
+        haveAllEstimates = false;
+      } else {
+        combined *= est.prob(l.pick);
+      }
+    }
+    final comboEv = (haveAllEstimates && allOdds)
+        ? expectedValue(combined, total)
+        : null;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Szelvény'),
@@ -132,6 +152,7 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
                                       fontSize: 12,
                                       color: scheme.onSurfaceVariant),
                                 ),
+                                _LegEstimate(leg: l),
                               ],
                             ),
                           ),
@@ -189,6 +210,16 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
                         _SumRow('Összodds',
                             allOdds ? fmtOdds(total) : 'adj meg minden oddsot'),
                         _SumRow('Tét', stake == null ? '–' : fmtAmount(stake)),
+                        if (haveAllEstimates) ...[
+                          _SumRow('Becsült együttes esély',
+                              '${(combined * 100).toStringAsFixed(1)}%'),
+                          _SumRow('Fair összodds', fmtOdds(fairOdds(combined))),
+                          if (comboEv != null)
+                            _SumRow(
+                              'Becsült várható érték',
+                              '${comboEv >= 0 ? '+' : ''}${(comboEv * 100).toStringAsFixed(0)}%',
+                            ),
+                        ],
                         const Divider(),
                         _SumRow(
                           'Várható nyeremény',
@@ -201,6 +232,16 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
                     ),
                   ),
                 ),
+                if (haveAllEstimates)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      'A becslés egyszerű statisztikai modell a bajnokság '
+                      'gólátlagaiból, a meccseket függetlennek tekinti. '
+                      'Nem garancia és nem ajánlás.',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
                   icon: const Icon(Icons.save_outlined),
@@ -289,6 +330,27 @@ class _OddsFieldState extends State<_OddsField> {
         final v = double.tryParse(t.trim().replaceAll(',', '.'));
         widget.onChanged(v);
       },
+    );
+  }
+}
+
+class _LegEstimate extends ConsumerWidget {
+  final DraftLeg leg;
+  const _LegEstimate({required this.leg});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final f = leg.fixture;
+    final est =
+        ref.watch(estimateProvider((f.leagueId, f.homeId, f.awayId))).valueOrNull;
+    if (est == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: EstimateLine(
+        prob: est.prob(leg.pick),
+        odds: leg.odds,
+        fontSize: 11,
+      ),
     );
   }
 }

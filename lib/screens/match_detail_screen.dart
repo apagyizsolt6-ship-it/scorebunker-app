@@ -9,9 +9,11 @@ import '../models/fixture.dart';
 import '../models/match_extras.dart';
 import '../models/standing.dart';
 import '../providers.dart';
+import '../services/estimator.dart';
 import '../services/sport_api.dart';
 import '../widgets/common.dart';
 import 'standings_screen.dart';
+import 'team_screen.dart';
 
 class MatchDetailScreen extends ConsumerWidget {
   final Fixture fixture;
@@ -149,6 +151,13 @@ class MatchDetailScreen extends ConsumerWidget {
                             name: f.homeTeam,
                             isFav: favs.containsKey(f.homeId),
                             onToggle: () => toggleFav(f.homeId, f.homeTeam),
+                            onOpen: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => TeamScreen(
+                                    teamId: f.homeId, name: f.homeTeam),
+                              ),
+                            ),
                           ),
                         ),
                         Padding(
@@ -168,6 +177,13 @@ class MatchDetailScreen extends ConsumerWidget {
                             name: f.awayTeam,
                             isFav: favs.containsKey(f.awayId),
                             onToggle: () => toggleFav(f.awayId, f.awayTeam),
+                            onOpen: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => TeamScreen(
+                                    teamId: f.awayId, name: f.awayTeam),
+                              ),
+                            ),
                           ),
                         ),
                       ],
@@ -254,6 +270,8 @@ class MatchDetailScreen extends ConsumerWidget {
                 final home = t.rowOf(f.homeId);
                 final away = t.rowOf(f.awayId);
                 if (home == null && away == null) return const SizedBox.shrink();
+                final est =
+                    f.isFinished ? null : estimateMatch(t, f.homeId, f.awayId);
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -276,6 +294,15 @@ class MatchDetailScreen extends ConsumerWidget {
                         ),
                       ),
                     ),
+                    if (est != null) ...[
+                      const SizedBox(height: 16),
+                      _title('Becsült esélyek'),
+                      _EstimateCard(
+                        est: est,
+                        home: f.homeLabel,
+                        away: f.awayLabel,
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     _title('Forma (utolsó meccsek)'),
                     Row(
@@ -376,23 +403,37 @@ class _TeamBlock extends StatelessWidget {
   final String name;
   final bool isFav;
   final VoidCallback onToggle;
+  final VoidCallback onOpen;
 
   const _TeamBlock({
     required this.id,
     required this.name,
     required this.isFav,
     required this.onToggle,
+    required this.onOpen,
   });
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        TeamLogo(teamId: id, size: 40, padRight: false),
-        Text(
-          name,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+        InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onOpen,
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Column(
+              children: [
+                TeamLogo(teamId: id, size: 40, padRight: false),
+                Text(
+                  name,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+              ],
+            ),
+          ),
         ),
         IconButton(
           tooltip: isFav ? 'Eltávolítás a kedvencekből' : 'Kedvencnek jelölöm',
@@ -788,6 +829,91 @@ class _LineupsSectionState extends ConsumerState<_LineupsSection> {
                   },
                 ),
         ],
+      ),
+    );
+  }
+}
+
+// ==================== BECSÜLT ESÉLYEK ====================
+class _EstimateCard extends StatelessWidget {
+  final MatchEstimate est;
+  final String home;
+  final String away;
+  const _EstimateCard({
+    required this.est,
+    required this.home,
+    required this.away,
+  });
+
+  Widget _row(BuildContext context, String label, double p) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 118,
+            child: Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12)),
+          ),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: p.clamp(0.0, 1.0).toDouble(),
+                minHeight: 7,
+                color: scheme.primary,
+                backgroundColor: scheme.surfaceContainerHighest,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 92,
+            child: Text(
+              '${(p * 100).round()}%  (${fairOdds(p).toStringAsFixed(2)})',
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Várható gólok: ${est.lambdaHome.toStringAsFixed(2)} – '
+              '${est.lambdaAway.toStringAsFixed(2)}',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            _row(context, '$home nyer', est.home),
+            _row(context, 'Döntetlen', est.draw),
+            _row(context, '$away nyer', est.away),
+            const Divider(height: 16),
+            _row(context, 'Over 2.5 gól', est.over25),
+            _row(context, 'Under 2.5 gól', est.under25),
+            const Divider(height: 16),
+            _row(context, 'Mindkét csapat lő', est.bttsYes),
+            _row(context, 'Nem lő mindkettő', est.bttsNo),
+            const SizedBox(height: 8),
+            const Text(
+              'Zárójelben a fair odds (jutalék nélkül). Egyszerű, a bajnokság '
+              'gólátlagaiból számolt becslés, nem garancia és nem ajánlás.',
+              style: TextStyle(fontSize: 11),
+            ),
+          ],
+        ),
       ),
     );
   }

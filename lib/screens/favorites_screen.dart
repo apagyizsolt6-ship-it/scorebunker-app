@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers.dart';
+import 'team_screen.dart';
 
 class FavoritesScreen extends ConsumerWidget {
   const FavoritesScreen({super.key});
@@ -34,6 +35,12 @@ class FavoritesScreen extends ConsumerWidget {
                 return ListTile(
                   leading: const Icon(Icons.star, color: Colors.amber),
                   title: Text(e.value),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => TeamScreen(teamId: e.key, name: e.value),
+                    ),
+                  ),
                   trailing: IconButton(
                     tooltip: 'Eltávolítás',
                     icon: const Icon(Icons.delete_outline),

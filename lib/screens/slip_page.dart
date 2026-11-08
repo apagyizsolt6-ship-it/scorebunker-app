@@ -6,6 +6,7 @@ import '../models/fixture.dart';
 import '../models/slip.dart';
 import '../providers.dart';
 import '../widgets/common.dart';
+import '../widgets/estimate_line.dart';
 import 'saved_slips_screen.dart';
 import 'slip_draft_screen.dart';
 
@@ -259,6 +260,11 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
     super.dispose();
   }
 
+  double? _oddsValue() {
+    final v = double.tryParse(_odds.text.trim().replaceAll(',', '.'));
+    return (v == null || v <= 1.0) ? null : v;
+  }
+
   void _save() {
     final pick = _pick;
     if (pick == null) return;
@@ -301,6 +307,10 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
   Widget build(BuildContext context) {
     final f = widget.fixture;
     final exists = ref.watch(draftProvider).containsKey(f.id);
+    final est = ref
+        .watch(estimateProvider((f.leagueId, f.homeId, f.awayId)))
+        .valueOrNull;
+    final pick = _pick;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SingleChildScrollView(
@@ -317,6 +327,10 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
             _group('Kimenetel', const [Pick.home, Pick.draw, Pick.away]),
             _group('Gólok', const [Pick.over25, Pick.under25]),
             _group('Mindkét csapat szerez gólt', const [Pick.bttsYes, Pick.bttsNo]),
+            if (est != null && pick != null) ...[
+              const SizedBox(height: 12),
+              EstimateLine(prob: est.prob(pick), odds: _oddsValue()),
+            ],
             const SizedBox(height: 16),
             TextField(
               controller: _odds,
@@ -327,9 +341,7 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
                 border: const OutlineInputBorder(),
                 isDense: true,
               ),
-              onChanged: (_) {
-                if (_error != null) setState(() => _error = null);
-              },
+              onChanged: (_) => setState(() => _error = null),
             ),
             const SizedBox(height: 16),
             Row(
