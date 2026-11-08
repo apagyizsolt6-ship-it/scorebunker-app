@@ -128,7 +128,7 @@ class ProfilePage extends ConsumerWidget {
         children: [
           const ListTile(
             leading: Icon(Icons.workspace_premium),
-            title: Text('Scorebunker PRO'),
+            title: Text('APISCORES PRO'),
             subtitle: Text('Hamarosan elérhető'),
           ),
           const Divider(),
@@ -264,7 +264,7 @@ class ProfilePage extends ConsumerWidget {
             title: const Text('Névjegy'),
             onTap: () => showAboutDialog(
               context: context,
-              applicationName: 'Scorebunker',
+              applicationName: 'APISCORES',
               applicationVersion: '1.4.0',
               children: const [
                 SizedBox(height: 8),

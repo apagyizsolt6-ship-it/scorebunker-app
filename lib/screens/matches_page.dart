@@ -163,7 +163,7 @@ class MatchesPage extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scorebunker'),
+        title: const Text('APISCORES'),
         centerTitle: true,
         actions: [
           const _LiveDot(),
