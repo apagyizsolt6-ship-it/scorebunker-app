@@ -2,6 +2,7 @@
 """A `flutter create .` után lefutó javítások az Android projekten:
  - engedélyek (internet, értesítések, rezgés)
  - az app neve: APISCORES
+ - kék háttér az indításkor (a Flutter animált indítóképernyője előtt)
  - core library desugaring (a flutter_local_notifications miatt kell)
 Többször lefuttatva sem csinál duplikációt.
 """
@@ -27,6 +28,16 @@ for perm in (
 text = re.sub(r'android:label="[^"]*"', 'android:label="APISCORES"', text, count=1)
 manifest.write_text(text, encoding='utf-8')
 print('manifest ok')
+
+# ---------- indítási háttér: fehér helyett kék ----------
+for d in ('drawable', 'drawable-v21'):
+    lb = root / 'src/main/res' / d / 'launch_background.xml'
+    if lb.exists():
+        t = lb.read_text(encoding='utf-8')
+        t2 = t.replace('@android:color/white', '#FF1A73E8')
+        if t2 != t:
+            lb.write_text(t2, encoding='utf-8')
+            print('launch background ok:', lb)
 
 # ---------- build.gradle(.kts) ----------
 gradle = None
