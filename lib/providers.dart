@@ -3,20 +3,25 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import 'data/league_catalog.dart';
+import 'models/backtest.dart';
 import 'models/fixture.dart';
 import 'models/leaders.dart';
 import 'models/live_score.dart';
 import 'models/match_extras.dart';
+import 'models/player_stats.dart';
 import 'models/slip.dart';
 import 'models/standing.dart';
 import 'models/team.dart';
 import 'models/trend.dart';
 import 'services/api_key_store.dart';
+import 'services/backtest_store.dart';
 import 'services/disk_cache.dart';
 import 'services/estimator.dart';
 import 'services/live_socket.dart';
+import 'services/alerts.dart';
 import 'services/prefs_store.dart';
 import 'services/slip_store.dart';
 import 'services/sport_api.dart';
@@ -78,6 +83,21 @@ class SettingsNotifier extends Notifier<AppSettings> {
 
   void setThemeMode(ThemeMode m) {
     state = state.copyWith(themeMode: m);
+    SettingsStore.save(state);
+  }
+
+  void setNotifyKickoff(bool v) {
+    state = state.copyWith(notifyKickoff: v);
+    SettingsStore.save(state);
+  }
+
+  void setKickoffMinutes(int m) {
+    state = state.copyWith(kickoffMinutes: m);
+    SettingsStore.save(state);
+  }
+
+  void setNotifyGoals(bool v) {
+    state = state.copyWith(notifyGoals: v);
     SettingsStore.save(state);
   }
 }
@@ -334,6 +354,7 @@ final trendsProvider = FutureProvider<TrendsResult>((ref) async {
   if (lim != null && !haveAny) throw lim;
 
   final trends = <Trend>[];
+  final estimateLog = <EstimateLogEntry>[];
   var matches = 0;
   var leagues = 0;
   final seenLeagues = <int>{};
@@ -344,6 +365,18 @@ final trendsProvider = FutureProvider<TrendsResult>((ref) async {
     matches++;
     if (seenLeagues.add(f.leagueId)) leagues++;
     trends.addAll(trendsFor(f, t.rowOf(f.homeId), t.rowOf(f.awayId)));
+    final est = estimateMatch(t, f.homeId, f.awayId);
+    if (est != null) {
+      estimateLog.add(EstimateLogEntry(
+        fixtureId: f.id,
+        date: f.date,
+        home: est.home,
+        draw: est.draw,
+        away: est.away,
+        over25: est.over25,
+        btts: est.bttsYes,
+      ));
+    }
   }
   trends.sort((a, b) {
     final s = b.strength.compareTo(a.strength);
@@ -352,6 +385,22 @@ final trendsProvider = FutureProvider<TrendsResult>((ref) async {
     if (h != 0) return h;
     return byKickoff(a.fixture, b.fixture);
   });
+  // Napló a későbbi visszamérésekhez (háttérben, a végeredmény után értékeljük).
+  BacktestStore.add(
+    trends: [
+      for (final t in trends)
+        if (t.pick != null)
+          TrendLogEntry(
+            fixtureId: t.fixture.id,
+            date: t.fixture.date,
+            kind: t.kind.index,
+            pick: t.pick!.name,
+            strength: t.strength,
+          ),
+    ],
+    estimates: estimateLog,
+  );
+
   return TrendsResult(
     trends: trends,
     matches: matches,
@@ -497,10 +546,139 @@ final trophiesProvider =
 final estimateProvider =
     FutureProvider.family<MatchEstimate?, (int, int, int)>((ref, k) async {
   if (k.$1 == 0) return null;
+  final tableFuture = ref.watch(standingsProvider(k.$1).future);
+  // A H2H hibája nem akaszthatja meg a becslést: a hibát azonnal elnyeljük.
+  final h2hSafe = ref
+      .watch(h2hProvider((k.$2, k.$3)).future)
+      .then<List<Fixture>?>((v) => v, onError: (Object _) => null);
   try {
-    final t = await ref.watch(standingsProvider(k.$1).future);
-    return estimateMatch(t, k.$2, k.$3);
+    final t = await tableFuture;
+    final h2h = await h2hSafe;
+    return estimateMatch(t, k.$2, k.$3, h2h: h2h);
   } catch (_) {
     return null;
   }
 });
+
+// ==================== VISSZAMÉRÉS ====================
+/// A naplózott trendek és becslések kiértékelése a lejátszott meccsek alapján.
+final backtestReportProvider =
+    FutureProvider.autoDispose<BacktestReport>((ref) async {
+  final api = ref.watch(apiProvider);
+  final log = await BacktestStore.load();
+  final today = DateTime.now();
+
+  final dates = <String>{
+    for (final e in log.trends) e.date,
+    for (final e in log.estimates) e.date,
+  };
+
+  final fx = <int, Fixture>{};
+  if (api != null) {
+    for (final d in dates) {
+      final dt = DateTime.tryParse(d);
+      if (dt == null || dt.isAfter(today)) continue;
+      try {
+        final list =
+            await api.fixturesByDate(dt, ttl: const Duration(minutes: 30));
+        for (final f in list) {
+          fx[f.id] = f;
+        }
+      } on ApiException catch (e) {
+        if (e.status == 429 || e.status == 401) rethrow;
+      }
+    }
+  }
+  return buildReport(log, fx);
+});
+
+// ==================== JÁTÉKOS ====================
+/// (név, csapatazonosító, mezszám) alapján. Null, ha nincs adat.
+final playerStatsProvider = FutureProvider.autoDispose
+    .family<PlayerStats?, (String, int, int)>((ref, k) async {
+  final api = ref.watch(apiProvider);
+  if (api == null) return null;
+  try {
+    return await api.playerStats(k.$1, k.$2, k.$3 <= 0 ? null : k.$3);
+  } on ApiException catch (e) {
+    if (e.status == 404) return null;
+    rethrow;
+  }
+});
+
+// ==================== ÉRTESÍTÉSEK ====================
+/// A kedvenc csapatok következő meccseire (ma + 2 nap) kezdés-értesítést ütemez.
+/// Minden szinkronnál előbb lemondja a korábban ütemezetteket.
+class NotifSyncNotifier extends Notifier<DateTime?> {
+  bool _busy = false;
+  bool _again = false;
+
+  @override
+  DateTime? build() => null;
+
+  Future<void> sync() async {
+    if (_busy) {
+      _again = true;
+      return;
+    }
+    _busy = true;
+    try {
+      do {
+        _again = false;
+        await _run();
+      } while (_again);
+    } finally {
+      _busy = false;
+    }
+  }
+
+  Future<void> _run() async {
+    final s = ref.read(settingsProvider);
+    final api = ref.read(apiProvider);
+    final favs = ref.read(favoritesProvider);
+
+    final old = await NotifStore.load();
+    for (final id in old) {
+      await Alerts.cancel(id);
+    }
+    if (!s.notifyKickoff || api == null || favs.isEmpty) {
+      await NotifStore.save(const <int>[]);
+      state = DateTime.now();
+      return;
+    }
+
+    final now = DateTime.now();
+    final ids = <int>[];
+    for (var d = 0; d < 3; d++) {
+      final day = DateTime(now.year, now.month, now.day + d);
+      List<Fixture> list;
+      try {
+        list = await api.fixturesByDate(day, ttl: const Duration(minutes: 60));
+      } catch (_) {
+        continue;
+      }
+      for (final f in list) {
+        final kick = f.kickoff;
+        if (!f.isScheduled || kick == null) continue;
+        if (!(favs.containsKey(f.homeId) || favs.containsKey(f.awayId))) {
+          continue;
+        }
+        final at = kick.subtract(Duration(minutes: s.kickoffMinutes));
+        if (!at.isAfter(now.add(const Duration(minutes: 1)))) continue;
+        await Alerts.scheduleKickoff(
+          id: f.id,
+          title: '⚽ ${f.homeLabel} – ${f.awayLabel}',
+          body: '${leagueHu(f.leagueName)} • kezdés '
+              '${DateFormat('HH:mm').format(kick)}',
+          at: at,
+        );
+        ids.add(f.id);
+      }
+    }
+    await NotifStore.save(ids);
+    state = DateTime.now();
+  }
+}
+
+final notifSyncProvider =
+    NotifierProvider<NotifSyncNotifier, DateTime?>(NotifSyncNotifier.new);

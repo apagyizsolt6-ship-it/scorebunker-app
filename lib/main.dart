@@ -1,14 +1,18 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'models/fixture.dart';
+import 'models/live_score.dart';
 import 'providers.dart';
 import 'screens/matches_page.dart';
 import 'screens/profile_page.dart';
 import 'screens/slip_page.dart';
 import 'screens/trends_page.dart';
+import 'services/alerts.dart';
 
 void main() {
   runApp(const ProviderScope(child: ScorebunkerApp()));
@@ -84,6 +88,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ref.invalidate(fixturesProvider);
   }
 
+  void _syncNotifications() {
+    ref.read(notifSyncProvider.notifier).sync();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _lifecycle = state;
@@ -92,6 +100,46 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       if (ref.read(apiProvider) != null) {
         ref.invalidate(fixturesProvider);
       }
+      _syncNotifications();
+    }
+  }
+
+  /// Gól-jelzés a kedvenc csapatok meccsein (megnyitott appnál).
+  void _onScores(Map<int, LiveScore>? prev, Map<int, LiveScore> next) {
+    if (!ref.read(settingsProvider).notifyGoals) return;
+    final favs = ref.read(favoritesProvider);
+    if (favs.isEmpty) return;
+    final base = ref.read(fixturesProvider).valueOrNull ?? const <Fixture>[];
+
+    for (final e in next.entries) {
+      final before = prev?[e.key];
+      if (identical(before, e.value)) continue;
+
+      Fixture? f;
+      for (final x in base) {
+        if (x.id == e.key) {
+          f = x;
+          break;
+        }
+      }
+      if (f == null) continue;
+      if (!(favs.containsKey(f.homeId) || favs.containsKey(f.awayId))) continue;
+
+      final prevTotal = before == null
+          ? (f.homeScore ?? 0) + (f.awayScore ?? 0)
+          : (before.homeScore ?? 0) + (before.awayScore ?? 0);
+      final nowTotal = (e.value.homeScore ?? 0) + (e.value.awayScore ?? 0);
+      if (nowTotal <= prevTotal) continue;
+
+      final min = e.value.minute;
+      HapticFeedback.heavyImpact();
+      Alerts.showGoal(
+        id: 1000000000 + e.key,
+        title: '⚽ GÓL!',
+        body: '${f.homeLabel} ${e.value.homeScore ?? 0} – '
+            '${e.value.awayScore ?? 0} ${f.awayLabel}'
+            '${min == null || min.isEmpty ? '' : '  ($min)'}',
+      );
     }
   }
 
@@ -99,6 +147,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget build(BuildContext context) {
     // Az élő kapcsolat itt indul el és marad életben.
     ref.watch(liveProvider.select((s) => s.conn));
+
+    // Kezdés-értesítések újraütemezése, ha bármi változik.
+    ref.listen(apiProvider, (_, __) => _syncNotifications());
+    ref.listen(favoritesProvider, (_, __) => _syncNotifications());
+    ref.listen(
+      settingsProvider.select((s) => (s.notifyKickoff, s.kickoffMinutes)),
+      (_, __) => _syncNotifications(),
+    );
+    ref.listen<Map<int, LiveScore>>(
+      liveProvider.select((s) => s.scores),
+      _onScores,
+    );
 
     const pages = <Widget>[
       MatchesPage(),
