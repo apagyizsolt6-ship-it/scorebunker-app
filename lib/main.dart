@@ -25,7 +25,7 @@ class ScorebunkerApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(settingsProvider.select((s) => s.themeMode));
     return MaterialApp(
-      title: 'Scorebunker',
+      title: 'APISCORES',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
