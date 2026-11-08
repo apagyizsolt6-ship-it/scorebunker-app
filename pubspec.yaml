@@ -1,5 +1,5 @@
 name: scorebunker_app
-description: Scorebunker – élő eredmények, tabellák, trendek
+description: APISCORES – élő eredmények, tabellák, trendek
 publish_to: 'none'
 version: 1.4.0+4
 
@@ -30,9 +30,9 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: false
-  image_path: "assets/icon/icon.png"
+  image_path: "assets/icon.png"
   adaptive_icon_background: "#1A73E8"
-  adaptive_icon_foreground: "assets/icon/icon_fg.png"
+  adaptive_icon_foreground: "assets/icon_fg.png"
 
 flutter:
   uses-material-design: true
