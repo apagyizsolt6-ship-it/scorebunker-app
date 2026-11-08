@@ -6,8 +6,11 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 import '../models/fixture.dart';
+import '../models/leaders.dart';
 import '../models/match_extras.dart';
 import '../models/standing.dart';
+import '../models/team.dart';
+import 'disk_cache.dart';
 
 class ApiException implements Exception {
   final String message;
@@ -103,7 +106,17 @@ class SportApi {
     return 'Elérted a napi kérés-limitet.$when';
   }
 
-  Future<Map<String, dynamic>> _get(String path) async {
+  /// `ttl`: ennyi ideig a lemezre mentett válasz kérés nélkül is használható.
+  /// `force`: kihagyja a lemezes gyorsítótárat.
+  Future<Map<String, dynamic>> _get(
+    String path, {
+    Duration? ttl,
+    bool force = false,
+  }) async {
+    if (ttl != null && !force) {
+      final hit = await DiskCache.read(path, ttl);
+      if (hit != null) return hit;
+    }
     final cached = _cache[path];
     final headers = <String, String>{
       'X-Api-Key': key,
@@ -126,6 +139,7 @@ class SportApi {
     if (q != null && onQuota != null) onQuota!(q);
 
     if (res.statusCode == 304 && cached != null) {
+      if (ttl != null) unawaited(DiskCache.write(path, cached.body));
       return cached.body;
     }
     if (res.statusCode == 401) {
@@ -151,6 +165,8 @@ class SportApi {
       throw const ApiException('Váratlan válasz a szervertől.');
     }
     final Map<String, dynamic> body = decoded;
+
+    if (ttl != null) unawaited(DiskCache.write(path, body));
 
     final etag = res.headers['etag'];
     if (etag != null && etag.isNotEmpty) {
@@ -200,13 +216,70 @@ class SportApi {
   }
 
   Future<List<Fixture>> h2h(int team1, int team2) async {
-    final j = await _get('/fixtures/h2h/$team1/$team2');
+    final j = await _get(
+      '/fixtures/h2h/$team1/$team2',
+      ttl: const Duration(hours: 24),
+    );
     return _fixtures(j['data']);
   }
 
   /// Teljes tabella a csapatok utolsó meccseivel (form).
-  Future<LeagueTable> standings(int leagueId) async {
-    final j = await _get('/standings/$leagueId');
+  /// 4 óráig a lemezről jön, ha nincs `force`.
+  Future<LeagueTable> standings(int leagueId, {bool force = false}) async {
+    final j = await _get(
+      '/standings/$leagueId',
+      ttl: const Duration(hours: 4),
+      force: force,
+    );
     return LeagueTable.fromJson(j);
+  }
+
+  /// Góllövők / gólpasszok / lapok egy bajnokságban (6 óráig gyorsítótárazva).
+  Future<List<LeaderRow>> leaders(
+    int leagueId,
+    LeaderKind kind, {
+    int limit = 25,
+  }) async {
+    final j = await _get(
+      '/leagues/$leagueId/${kind.path}?limit=$limit',
+      ttl: const Duration(hours: 6),
+    );
+    final d = j['data'];
+    return [
+      if (d is List)
+        for (final x in d)
+          if (x is Map) LeaderRow.fromJson(Map<String, dynamic>.from(x), kind),
+    ];
+  }
+
+  Future<TeamInfo> team(int teamId) async {
+    final j = await _get('/teams/$teamId', ttl: const Duration(hours: 3));
+    return TeamInfo.fromJson(j);
+  }
+
+  Future<List<SquadPlayer>> squad(int teamId) async {
+    final j = await _get(
+      '/teams/$teamId/squad',
+      ttl: const Duration(hours: 12),
+    );
+    final d = j['squad'];
+    return [
+      if (d is List)
+        for (final x in d)
+          if (x is Map) SquadPlayer.fromJson(Map<String, dynamic>.from(x)),
+    ];
+  }
+
+  Future<List<Trophy>> trophies(int teamId) async {
+    final j = await _get(
+      '/teams/$teamId/trophies',
+      ttl: const Duration(hours: 24),
+    );
+    final d = j['trophies'];
+    return [
+      if (d is List)
+        for (final x in d)
+          if (x is Map) Trophy.fromJson(Map<String, dynamic>.from(x)),
+    ];
   }
 }
