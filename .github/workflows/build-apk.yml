@@ -31,36 +31,47 @@ jobs:
           flutter create . --project-name scorebunker_app --org com.scorebunker
           echo "Flutter project structure generated"
 
-      - name: Add INTERNET permission (release build)
+      - name: Add INTERNET permission
         run: |
-          sed -i 's|<application>|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' android/app/src/main/AndroidManifest.xml
-          grep -n "INTERNET" android/app/src/main/AndroidManifest.xml
+          # Biztosan beszúrjuk az INTERNET permission-t a <manifest> után
+          if ! grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml; then
+            sed -i 's|<manifest[^>]*>|&\n    <uses-permission android:name="android.permission.INTERNET"/>|' android/app/src/main/AndroidManifest.xml
+          fi
+          echo "=== AndroidManifest.xml (permission check) ==="
+          grep -n "INTERNET\|<manifest\|<application" android/app/src/main/AndroidManifest.xml || true
 
       - name: Enable core library desugaring (required by flutter_local_notifications)
         run: |
-          # Modern Flutter projects use build.gradle.kts
           if [ -f android/app/build.gradle.kts ]; then
-            # Enable desugaring in compileOptions
-            sed -i '/compileOptions {/a\        isCoreLibraryDesugaringEnabled = true' android/app/build.gradle.kts
+            # Enable desugaring
+            if ! grep -q "isCoreLibraryDesugaringEnabled" android/app/build.gradle.kts; then
+              sed -i '/compileOptions {/a\        isCoreLibraryDesugaringEnabled = true' android/app/build.gradle.kts
+            fi
 
-            # Add the desugar dependency (create dependencies block if missing)
-            if ! grep -q "dependencies {" android/app/build.gradle.kts; then
-              echo -e "\ndependencies {\n    coreLibraryDesugaring(\"com.android.tools:desugar_jdk_libs:2.1.4\")\n}" >> android/app/build.gradle.kts
-            else
-              sed -i '/dependencies {/a\    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' android/app/build.gradle.kts
+            # Add dependency
+            if ! grep -q "desugar_jdk_libs" android/app/build.gradle.kts; then
+              if grep -q "dependencies {" android/app/build.gradle.kts; then
+                sed -i '/dependencies {/a\    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' android/app/build.gradle.kts
+              else
+                echo -e "\ndependencies {\n    coreLibraryDesugaring(\"com.android.tools:desugar_jdk_libs:2.1.4\")\n}" >> android/app/build.gradle.kts
+              fi
             fi
             echo "Desugaring enabled in build.gradle.kts"
+            cat android/app/build.gradle.kts
           elif [ -f android/app/build.gradle ]; then
-            # Fallback for older Groovy-based projects
-            sed -i '/compileOptions {/a\        coreLibraryDesugaringEnabled true' android/app/build.gradle
-            if ! grep -q "dependencies {" android/app/build.gradle; then
-              echo -e "\ndependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'\n}" >> android/app/build.gradle
-            else
-              sed -i '/dependencies {/a\    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"' android/app/build.gradle
+            if ! grep -q "coreLibraryDesugaringEnabled" android/app/build.gradle; then
+              sed -i '/compileOptions {/a\        coreLibraryDesugaringEnabled true' android/app/build.gradle
+            fi
+            if ! grep -q "desugar_jdk_libs" android/app/build.gradle; then
+              if grep -q "dependencies {" android/app/build.gradle; then
+                sed -i '/dependencies {/a\    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"' android/app/build.gradle
+              else
+                echo -e "\ndependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'\n}" >> android/app/build.gradle
+              fi
             fi
             echo "Desugaring enabled in build.gradle"
           else
-            echo "ERROR: No build.gradle or build.gradle.kts found!"
+            echo "ERROR: No build.gradle(.kts) found!"
             exit 1
           fi
 
