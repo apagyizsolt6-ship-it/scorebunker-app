@@ -1,14 +1,21 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'data/league_catalog.dart';
 import 'models/fixture.dart';
 import 'models/live_score.dart';
 import 'models/match_extras.dart';
+import 'models/slip.dart';
 import 'models/standing.dart';
+import 'models/trend.dart';
 import 'services/api_key_store.dart';
 import 'services/live_socket.dart';
 import 'services/prefs_store.dart';
+import 'services/slip_store.dart';
 import 'services/sport_api.dart';
+import 'services/trend_engine.dart';
 
 // ==================== API-KULCS ====================
 class ApiKeyNotifier extends AsyncNotifier<String?> {
@@ -225,4 +232,216 @@ final standingsProvider =
     if (e.status == 404) return LeagueTable.empty;
     rethrow;
   }
+});
+
+// ==================== TRENDEK ====================
+/// Alapból a nap MINDEN meccsét elemezzük (minden bajnokság tabelláját
+/// betöltjük). Bekapcsolva csak a top ligák és a kedvencek maradnak.
+final trendsTopOnlyProvider = StateProvider<bool>((ref) => false);
+
+final trendGroupFilterProvider = StateProvider<TrendGroup?>((ref) => null);
+
+/// A munkamenet alatt letöltött tabellák (bajnokság-azonosító -> tabella).
+final standingsCacheProvider =
+    Provider<Map<int, LeagueTable>>((ref) => <int, LeagueTable>{});
+
+/// Betöltési haladás: (kész, összes) tabella.
+final trendsProgressProvider = StateProvider<(int, int)>((ref) => (0, 0));
+
+/// Azok a bajnokságok, amelyek tabelláját a trendekhez le kell tölteni.
+final trendLeagueIdsProvider = Provider<List<int>>((ref) {
+  final list = ref.watch(fixturesProvider).valueOrNull ?? const <Fixture>[];
+  final topOnly = ref.watch(trendsTopOnlyProvider);
+  final favIds = ref.watch(favoritesProvider).keys.toSet();
+  final ids = <int>{};
+  for (final f in list) {
+    if (!f.isScheduled || f.leagueId == 0) continue;
+    final fav = favIds.contains(f.homeId) || favIds.contains(f.awayId);
+    if (!topOnly || fav || topLeagueOf(f) != null) ids.add(f.leagueId);
+  }
+  return ids.toList()..sort();
+});
+
+final trendsProvider = FutureProvider<TrendsResult>((ref) async {
+  final api = ref.watch(apiProvider);
+  final fixtures = ref.watch(fixturesProvider).valueOrNull ?? const <Fixture>[];
+  final ids = ref.watch(trendLeagueIdsProvider);
+  final cache = ref.read(standingsCacheProvider);
+  final progress = ref.read(trendsProgressProvider.notifier);
+
+  if (api == null || ids.isEmpty) {
+    return const TrendsResult(trends: [], matches: 0, leagues: 0, failed: 0);
+  }
+
+  var alive = true;
+  ref.onDispose(() => alive = false);
+
+  final missing = [
+    for (final id in ids)
+      if (!cache.containsKey(id)) id,
+  ];
+  Future.microtask(() => progress.state = (0, missing.length));
+
+  var failed = 0;
+  var done = 0;
+  ApiException? limit;
+
+  // Csomagokban töltünk, hogy ne zúdítsunk egyszerre száz kérést a szerverre.
+  for (var i = 0; i < missing.length; i += 8) {
+    if (!alive || limit != null) break;
+    final batch = missing.sublist(i, math.min(i + 8, missing.length));
+    await Future.wait([
+      for (final id in batch)
+        () async {
+          try {
+            cache[id] = await api.standings(id);
+          } on ApiException catch (e) {
+            if (e.status == 404) {
+              cache[id] = LeagueTable.empty;
+            } else {
+              failed++;
+              if (e.status == 429 || e.status == 401) limit = e;
+            }
+          } catch (_) {
+            failed++;
+          }
+        }(),
+    ]);
+    done += batch.length;
+    progress.state = (done, missing.length);
+  }
+
+  final idSet = ids.toSet();
+  final lim = limit;
+  final haveAny = idSet.any(cache.containsKey);
+  if (lim != null && !haveAny) throw lim;
+
+  final trends = <Trend>[];
+  var matches = 0;
+  var leagues = 0;
+  final seenLeagues = <int>{};
+  for (final f in fixtures) {
+    if (!f.isScheduled || !idSet.contains(f.leagueId)) continue;
+    final t = cache[f.leagueId];
+    if (t == null || t.rows.isEmpty) continue;
+    matches++;
+    if (seenLeagues.add(f.leagueId)) leagues++;
+    trends.addAll(trendsFor(f, t.rowOf(f.homeId), t.rowOf(f.awayId)));
+  }
+  trends.sort((a, b) {
+    final s = b.strength.compareTo(a.strength);
+    if (s != 0) return s;
+    final h = b.hits.compareTo(a.hits);
+    if (h != 0) return h;
+    return byKickoff(a.fixture, b.fixture);
+  });
+  return TrendsResult(
+    trends: trends,
+    matches: matches,
+    leagues: leagues,
+    failed: failed,
+  );
+});
+
+// ==================== SZELVÉNY ====================
+class DraftLeg {
+  final Fixture fixture;
+  final Pick pick;
+  final double? odds;
+  const DraftLeg(this.fixture, this.pick, this.odds);
+}
+
+/// A most épített (még nem mentett) szelvény: meccsazonosító -> tipp.
+class DraftNotifier extends Notifier<Map<int, DraftLeg>> {
+  @override
+  Map<int, DraftLeg> build() => const <int, DraftLeg>{};
+
+  void set(Fixture f, Pick pick, double? odds) {
+    state = {...state, f.id: DraftLeg(f, pick, odds)};
+  }
+
+  void setOdds(int id, double? odds) {
+    final l = state[id];
+    if (l == null) return;
+    state = {...state, id: DraftLeg(l.fixture, l.pick, odds)};
+  }
+
+  void remove(int id) {
+    final next = <int, DraftLeg>{...state}..remove(id);
+    state = next;
+  }
+
+  void clear() => state = const <int, DraftLeg>{};
+}
+
+final draftProvider =
+    NotifierProvider<DraftNotifier, Map<int, DraftLeg>>(DraftNotifier.new);
+
+/// Mentett szelvények.
+class SlipsNotifier extends Notifier<List<Slip>> {
+  @override
+  List<Slip> build() {
+    _load();
+    return const <Slip>[];
+  }
+
+  Future<void> _load() async {
+    final l = await SlipStore.load();
+    if (l.isNotEmpty) state = l;
+  }
+
+  void add(Slip s) {
+    state = [s, ...state];
+    SlipStore.save(state);
+  }
+
+  void remove(int id) {
+    state = [
+      for (final s in state)
+        if (s.id != id) s,
+    ];
+    SlipStore.save(state);
+  }
+
+  void setSettled(int id, List<int> results) {
+    state = [
+      for (final s in state)
+        if (s.id == id) s.withSettled(results) else s,
+    ];
+    SlipStore.save(state);
+  }
+}
+
+final slipsProvider =
+    NotifierProvider<SlipsNotifier, List<Slip>>(SlipsNotifier.new);
+
+/// A mentett, még el nem dőlt szelvények meccsei (napi lekérésekkel).
+final slipFixturesProvider =
+    FutureProvider.autoDispose<Map<int, Fixture>>((ref) async {
+  final api = ref.watch(apiProvider);
+  final slips = ref.read(slipsProvider);
+  if (api == null) return <int, Fixture>{};
+
+  final dates = <String>{};
+  for (final s in slips) {
+    if (s.settled != null) continue;
+    for (final l in s.legs) {
+      if (l.date.isNotEmpty) dates.add(l.date);
+    }
+  }
+
+  final now = DateTime.now();
+  final out = <int, Fixture>{};
+  for (final d in dates) {
+    final dt = DateTime.tryParse(d);
+    if (dt == null || dt.isAfter(now)) continue;
+    try {
+      for (final f in await api.fixturesByDate(dt)) {
+        out[f.id] = f;
+      }
+    } on ApiException catch (e) {
+      if (e.status == 429 || e.status == 401) rethrow;
+    }
+  }
+  return out;
 });
