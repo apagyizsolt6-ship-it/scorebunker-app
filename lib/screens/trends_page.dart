@@ -7,6 +7,7 @@ import '../models/slip.dart';
 import '../models/trend.dart';
 import '../providers.dart';
 import '../widgets/common.dart';
+import 'best_picks_tab.dart';
 import 'match_detail_screen.dart';
 
 /// Valódi trendek a nap összes közelgő meccsére, a bajnoki tabellák
@@ -25,57 +26,69 @@ class TrendsPage extends ConsumerWidget {
     final keyState = ref.watch(apiKeyProvider);
     final date = ref.watch(selectedDateProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Trendek'),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            tooltip: 'Újraszámolás',
-            icon: const Icon(Icons.refresh),
-            onPressed: () => _refresh(ref),
-          ),
-        ],
-      ),
-      body: keyState.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('$e')),
-        data: (k) {
-          if (k == null || k.isEmpty) return const NoKeyView();
-          final fixtures = ref.watch(fixturesProvider);
-          return fixtures.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => ErrorView(
-              error: e,
-              onRetry: () => ref.invalidate(fixturesProvider),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Trendek'),
+          centerTitle: true,
+          actions: [
+            IconButton(
+              tooltip: 'Újraszámolás',
+              icon: const Icon(Icons.refresh),
+              onPressed: () => _refresh(ref),
             ),
-            data: (list) {
-              final scheduled = list.where((m) => m.isScheduled).toList();
-              if (scheduled.isEmpty) {
-                return const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text(
-                      'Ezen a napon nincs közelgő meccs.\n'
-                      'A Meccsek fülön válassz másik napot.',
-                      textAlign: TextAlign.center,
+          ],
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Trendek'),
+              Tab(text: 'Legjobb esélyek'),
+            ],
+          ),
+        ),
+        body: keyState.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(child: Text('$e')),
+          data: (k) {
+            if (k == null || k.isEmpty) return const NoKeyView();
+            final fixtures = ref.watch(fixturesProvider);
+            return fixtures.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => ErrorView(
+                error: e,
+                onRetry: () => ref.invalidate(fixturesProvider),
+              ),
+              data: (list) {
+                final scheduled = list.where((m) => m.isScheduled).toList();
+                if (scheduled.isEmpty) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'Ezen a napon nincs közelgő meccs.\n'
+                        'A Meccsek fülön válassz másik napot.',
+                        textAlign: TextAlign.center,
+                      ),
                     ),
-                  ),
+                  );
+                }
+                return Column(
+                  children: [
+                    _Header(date: date),
+                    const Expanded(
+                      child: TabBarView(
+                        children: [
+                          _Body(),
+                          BestPicksTab(),
+                        ],
+                      ),
+                    ),
+                  ],
                 );
-              }
-              final totalLeagues = {
-                for (final m in scheduled)
-                  if (m.leagueId != 0) m.leagueId,
-              }.length;
-              return Column(
-                children: [
-                  _Header(date: date, totalLeagues: totalLeagues),
-                  Expanded(child: _Body(totalLeagues: totalLeagues)),
-                ],
-              );
-            },
-          );
-        },
+              },
+            );
+          },
+        ),
       ),
     );
   }
@@ -83,66 +96,40 @@ class TrendsPage extends ConsumerWidget {
 
 class _Header extends ConsumerWidget {
   final DateTime date;
-  final int totalLeagues;
-  const _Header({required this.date, required this.totalLeagues});
+  const _Header({required this.date});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final group = ref.watch(trendGroupFilterProvider);
     final topOnly = ref.watch(trendsTopOnlyProvider);
-
-    Widget chip(String label, TrendGroup? g) => ChoiceChip(
-          label: Text(label),
-          selected: group == g,
-          onSelected: (_) =>
-              ref.read(trendGroupFilterProvider.notifier).state = g,
-        );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-          child: Text(
-            'Nap: ${DateFormat('yyyy.MM.dd').format(date)} '
-            '(a Meccsek fülön váltható)',
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Nap: ${DateFormat('yyyy.MM.dd').format(date)} '
+              '(a Meccsek fülön váltható)',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
-        ),
-        SizedBox(
-          height: 48,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            children: [
-              chip('Mind', null),
-              const SizedBox(width: 8),
-              chip('Gólok', TrendGroup.goals),
-              const SizedBox(width: 8),
-              chip('BTTS', TrendGroup.btts),
-              const SizedBox(width: 8),
-              chip('Forma', TrendGroup.form),
-              const SizedBox(width: 8),
-              FilterChip(
-                label: const Text('Csak top + kedvencek'),
-                selected: topOnly,
-                onSelected: (v) =>
-                    ref.read(trendsTopOnlyProvider.notifier).state = v,
-              ),
-            ],
+          FilterChip(
+            label: const Text('Csak top + kedvencek'),
+            selected: topOnly,
+            visualDensity: VisualDensity.compact,
+            onSelected: (v) =>
+                ref.read(trendsTopOnlyProvider.notifier).state = v,
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
 class _Body extends ConsumerWidget {
-  final int totalLeagues;
-  const _Body({required this.totalLeagues});
+  const _Body();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -189,6 +176,41 @@ class _Body extends ConsumerWidget {
           for (final t in r.trends)
             if (group == null || t.group == group) t,
         ];
+
+        Widget chip(String label, TrendGroup? g) => ChoiceChip(
+              label: Text(label),
+              selected: group == g,
+              onSelected: (_) =>
+                  ref.read(trendGroupFilterProvider.notifier).state = g,
+            );
+
+        return Column(
+          children: [
+            SizedBox(
+              height: 48,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                children: [
+                  chip('Mind', null),
+                  const SizedBox(width: 8),
+                  chip('Gólok', TrendGroup.goals),
+                  const SizedBox(width: 8),
+                  chip('BTTS', TrendGroup.btts),
+                  const SizedBox(width: 8),
+                  chip('Forma', TrendGroup.form),
+                ],
+              ),
+            ),
+            Expanded(child: _list(context, r, shown)),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _list(BuildContext context, TrendsResult r, List<Trend> shown) {
         return ListView.builder(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           itemCount: shown.length + 2,
@@ -223,8 +245,6 @@ class _Body extends ConsumerWidget {
             return _TrendCard(trend: shown[index - 1]);
           },
         );
-      },
-    );
   }
 }
 
