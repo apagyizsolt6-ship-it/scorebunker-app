@@ -1,3 +1,4 @@
+import '../services/estimator.dart';
 import 'fixture.dart';
 import 'slip.dart';
 
@@ -43,14 +44,23 @@ class Trend {
       };
 }
 
+/// Egy meccs és a rá számolt esély-becslés (alapmodell).
+class FixtureEstimate {
+  final Fixture fixture;
+  final MatchEstimate est;
+  const FixtureEstimate(this.fixture, this.est);
+}
+
 class TrendsResult {
   final List<Trend> trends;
+  final List<FixtureEstimate> estimates;
   final int matches;
   final int leagues;
   final int failed;
 
   const TrendsResult({
     required this.trends,
+    this.estimates = const [],
     required this.matches,
     required this.leagues,
     required this.failed,
