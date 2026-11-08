@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart' show ThemeMode;
@@ -5,12 +6,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'data/league_catalog.dart';
 import 'models/fixture.dart';
+import 'models/leaders.dart';
 import 'models/live_score.dart';
 import 'models/match_extras.dart';
 import 'models/slip.dart';
 import 'models/standing.dart';
+import 'models/team.dart';
 import 'models/trend.dart';
 import 'services/api_key_store.dart';
+import 'services/disk_cache.dart';
+import 'services/estimator.dart';
 import 'services/live_socket.dart';
 import 'services/prefs_store.dart';
 import 'services/slip_store.dart';
@@ -242,8 +247,20 @@ final trendsTopOnlyProvider = StateProvider<bool>((ref) => false);
 final trendGroupFilterProvider = StateProvider<TrendGroup?>((ref) => null);
 
 /// A munkamenet alatt letöltött tabellák (bajnokság-azonosító -> tabella).
+/// A `clear()` a lemezes tabella-gyorsítótárat is törli, így az
+/// "Újraszámolás" gomb valóban friss adatot kér.
+class _StandingsMemory extends MapView<int, LeagueTable> {
+  _StandingsMemory() : super(<int, LeagueTable>{});
+
+  @override
+  void clear() {
+    super.clear();
+    DiskCache.clearSync('/standings');
+  }
+}
+
 final standingsCacheProvider =
-    Provider<Map<int, LeagueTable>>((ref) => <int, LeagueTable>{});
+    Provider<Map<int, LeagueTable>>((ref) => _StandingsMemory());
 
 /// Betöltési haladás: (kész, összes) tabella.
 final trendsProgressProvider = StateProvider<(int, int)>((ref) => (0, 0));
@@ -444,4 +461,46 @@ final slipFixturesProvider =
     }
   }
   return out;
+});
+
+// ==================== GÓLLÖVŐK, CSAPATOLDAL, ESÉLY-BECSLÉS ====================
+final leadersProvider = FutureProvider.autoDispose
+    .family<List<LeaderRow>, (int, LeaderKind)>((ref, k) async {
+  final api = ref.watch(apiProvider);
+  if (api == null) return [];
+  return api.leaders(k.$1, k.$2);
+});
+
+final teamProvider =
+    FutureProvider.autoDispose.family<TeamInfo?, int>((ref, id) async {
+  final api = ref.watch(apiProvider);
+  if (api == null) return null;
+  return api.team(id);
+});
+
+final squadProvider =
+    FutureProvider.autoDispose.family<List<SquadPlayer>, int>((ref, id) async {
+  final api = ref.watch(apiProvider);
+  if (api == null) return [];
+  return api.squad(id);
+});
+
+final trophiesProvider =
+    FutureProvider.autoDispose.family<List<Trophy>, int>((ref, id) async {
+  final api = ref.watch(apiProvider);
+  if (api == null) return [];
+  return api.trophies(id);
+});
+
+/// Becsült esélyek egy meccsre: (bajnokság, hazai, vendég) azonosítók alapján.
+/// Null, ha nincs elég tabella-adat.
+final estimateProvider =
+    FutureProvider.family<MatchEstimate?, (int, int, int)>((ref, k) async {
+  if (k.$1 == 0) return null;
+  try {
+    final t = await ref.watch(standingsProvider(k.$1).future);
+    return estimateMatch(t, k.$2, k.$3);
+  } catch (_) {
+    return null;
+  }
 });
