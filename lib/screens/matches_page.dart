@@ -181,11 +181,12 @@ class MatchesPage extends ConsumerWidget {
           ),
         ],
         bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(48),
+          preferredSize: Size.fromHeight(64),
           child: _DateBar(),
         ),
       ),
-      body: keyState.when(
+      body: _SwipeDays(
+        child: keyState.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('$e')),
         data: (k) {
@@ -367,6 +368,29 @@ class MatchesPage extends ConsumerWidget {
           );
         },
       ),
+      ),
+    );
+  }
+}
+
+/// Vízszintes húzásra (balra / jobbra) egy napot lép előre / vissza.
+class _SwipeDays extends ConsumerWidget {
+  final Widget child;
+  const _SwipeDays({required this.child});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragEnd: (d) {
+        final v = d.primaryVelocity ?? 0;
+        if (v.abs() < 500) return;
+        final cur = ref.read(selectedDateProvider);
+        final delta = v < 0 ? 1 : -1;
+        ref.read(selectedDateProvider.notifier).state =
+            DateTime(cur.year, cur.month, cur.day + delta);
+      },
+      child: child,
     );
   }
 }
@@ -567,28 +591,82 @@ class _GroupHeader extends StatelessWidget {
   }
 }
 
+/// Napsáv: a kiválasztott nap körül ±3 nap, koppintással váltható.
 class _DateBar extends ConsumerWidget {
   const _DateBar();
+
+  static const _weekdays = ['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final d = ref.watch(selectedDateProvider);
+    final scheme = Theme.of(context).colorScheme;
     void setDate(DateTime x) =>
         ref.read(selectedDateProvider.notifier).state = x;
     final now = DateTime.now();
-    final isToday = d.year == now.year && d.month == now.month && d.day == now.day;
-    final label = DateFormat('yyyy.MM.dd').format(d) + (isToday ? ' (ma)' : '');
+    bool isToday(DateTime x) =>
+        x.year == now.year && x.month == now.month && x.day == now.day;
+
+    final days = [
+      for (var i = -3; i <= 3; i++) DateTime(d.year, d.month, d.day + i),
+    ];
 
     return SizedBox(
-      height: 48,
+      height: 64,
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: () => setDate(DateTime(d.year, d.month, d.day - 1)),
+          Expanded(
+            child: Row(
+              children: [
+                for (final x in days)
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => setDate(x),
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(
+                            horizontal: 2, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: x.day == d.day && x.month == d.month
+                              ? scheme.primaryContainer
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          border: isToday(x)
+                              ? Border.all(color: scheme.primary, width: 1.2)
+                              : null,
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _weekdays[x.weekday - 1],
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${x.day}',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight:
+                                    x.day == d.day && x.month == d.month
+                                        ? FontWeight.w800
+                                        : FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-          TextButton(
+          IconButton(
+            tooltip: '${DateFormat('yyyy.MM.dd').format(d)} – dátum választása',
+            icon: const Icon(Icons.calendar_month_outlined),
             onPressed: () async {
               final p = await showDatePicker(
                 context: context,
@@ -598,11 +676,6 @@ class _DateBar extends ConsumerWidget {
               );
               if (p != null) setDate(p);
             },
-            child: Text(label),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () => setDate(DateTime(d.year, d.month, d.day + 1)),
           ),
         ],
       ),

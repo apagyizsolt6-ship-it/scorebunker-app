@@ -4,8 +4,10 @@ import 'package:intl/intl.dart';
 
 import '../models/live_score.dart';
 import '../providers.dart';
+import '../services/alerts.dart';
 import '../services/sport_api.dart';
 import '../widgets/common.dart';
+import 'backtest_screen.dart';
 import 'favorites_screen.dart';
 
 class ProfilePage extends ConsumerWidget {
@@ -156,6 +158,73 @@ class ProfilePage extends ConsumerWidget {
             subtitle: Text(liveText),
             onTap: () => ref.read(liveProvider.notifier).ensureConnected(),
           ),
+          ListTile(
+            leading: const Icon(Icons.fact_check_outlined),
+            title: const Text('Trendek visszamérése'),
+            subtitle: const Text('Hány trend és becslés jött be a lejátszott meccseken'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const BacktestScreen()),
+            ),
+          ),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Text('Értesítések',
+                style: Theme.of(context)
+                    .textTheme
+                    .labelLarge
+                    ?.copyWith(fontWeight: FontWeight.w800)),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.notifications_active_outlined),
+            title: const Text('Kezdés-értesítés a kedvenceknek'),
+            subtitle: Text(settings.notifyKickoff
+                ? '${settings.kickoffMinutes} perccel a kezdés előtt'
+                : 'Kikapcsolva'),
+            value: settings.notifyKickoff,
+            onChanged: (v) async {
+              if (v) {
+                final ok = await Alerts.requestPermission();
+                if (!ok && context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                          'Az értesítések nincsenek engedélyezve a telefon beállításaiban.'),
+                    ),
+                  );
+                }
+              }
+              ref.read(settingsProvider.notifier).setNotifyKickoff(v);
+            },
+          ),
+          if (settings.notifyKickoff)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment(value: 15, label: Text('15 perc')),
+                  ButtonSegment(value: 30, label: Text('30 perc')),
+                  ButtonSegment(value: 60, label: Text('60 perc')),
+                ],
+                selected: {settings.kickoffMinutes},
+                onSelectionChanged: (s) => ref
+                    .read(settingsProvider.notifier)
+                    .setKickoffMinutes(s.first),
+              ),
+            ),
+          SwitchListTile(
+            secondary: const Icon(Icons.sports_score_outlined),
+            title: const Text('Gól-értesítés'),
+            subtitle: const Text(
+                'A kedvenc csapatok meccsein, amíg az app meg van nyitva'),
+            value: settings.notifyGoals,
+            onChanged: (v) async {
+              if (v) await Alerts.requestPermission();
+              ref.read(settingsProvider.notifier).setNotifyGoals(v);
+            },
+          ),
           const Divider(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -196,7 +265,7 @@ class ProfilePage extends ConsumerWidget {
             onTap: () => showAboutDialog(
               context: context,
               applicationName: 'Scorebunker',
-              applicationVersion: '1.1.0',
+              applicationVersion: '1.4.0',
               children: const [
                 SizedBox(height: 8),
                 Text(

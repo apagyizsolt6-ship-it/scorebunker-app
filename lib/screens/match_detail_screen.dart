@@ -271,7 +271,10 @@ class MatchDetailScreen extends ConsumerWidget {
                 final away = t.rowOf(f.awayId);
                 if (home == null && away == null) return const SizedBox.shrink();
                 final est =
-                    f.isFinished ? null : estimateMatch(t, f.homeId, f.awayId);
+                    f.isFinished
+                        ? null
+                        : estimateMatch(t, f.homeId, f.awayId,
+                            h2h: h2h.valueOrNull);
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -908,8 +911,9 @@ class _EstimateCard extends StatelessWidget {
             _row(context, 'Nem lő mindkettő', est.bttsNo),
             const SizedBox(height: 8),
             const Text(
-              'Zárójelben a fair odds (jutalék nélkül). Egyszerű, a bajnokság '
-              'gólátlagaiból számolt becslés, nem garancia és nem ajánlás.',
+              'Zárójelben a fair odds (jutalék nélkül). Egyszerű becslés a '
+              'bajnokság eredményeiből, a hazai/idegenbeli formából és az '
+              'egymás elleni meccsekből. Nem garancia és nem ajánlás.',
               style: TextStyle(fontSize: 11),
             ),
           ],

@@ -7,6 +7,7 @@ import '../models/team.dart';
 import '../providers.dart';
 import '../widgets/common.dart';
 import 'match_detail_screen.dart';
+import 'player_screen.dart';
 
 /// Csapatoldal: áttekintés (adatok, következő meccsek, eredmények), keret, trófeák.
 class TeamScreen extends ConsumerWidget {
@@ -254,8 +255,22 @@ class _SquadTab extends ConsumerWidget {
               _section(context, '${_titles[k]} (${groups[k]!.length})'),
               for (final p in (groups[k]!
                 ..sort((a, b) => (a.number ?? 999).compareTo(b.number ?? 999))))
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
+                InkWell(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PlayerScreen(
+                        name: p.name,
+                        teamId: teamId,
+                        shirt: p.number,
+                        position: p.position,
+                        nationality: p.nationality,
+                        age: p.age,
+                      ),
+                    ),
+                  ),
+                  child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
                   child: Row(
                     children: [
                       SizedBox(
@@ -276,6 +291,7 @@ class _SquadTab extends ConsumerWidget {
                       ),
                     ],
                   ),
+                ),
                 ),
             ],
           ],
