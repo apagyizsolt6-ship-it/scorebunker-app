@@ -11,6 +11,7 @@ import 'providers.dart';
 import 'screens/matches_page.dart';
 import 'screens/profile_page.dart';
 import 'screens/slip_page.dart';
+import 'screens/splash_screen.dart';
 import 'screens/trends_page.dart';
 import 'services/alerts.dart';
 
@@ -40,7 +41,7 @@ class ScorebunkerApp extends ConsumerWidget {
         textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
       ),
       themeMode: mode,
-      home: const HomeScreen(),
+      home: const SplashGate(child: HomeScreen()),
     );
   }
 }
