@@ -7,22 +7,27 @@ import 'package:intl/intl.dart';
 
 import 'data/league_catalog.dart';
 import 'models/backtest.dart';
+import 'models/calibration.dart';
 import 'models/fixture.dart';
 import 'models/leaders.dart';
+import 'models/league_info.dart';
 import 'models/live_score.dart';
 import 'models/match_extras.dart';
 import 'models/player_stats.dart';
+import 'models/reminder.dart';
 import 'models/slip.dart';
 import 'models/standing.dart';
 import 'models/team.dart';
 import 'models/trend.dart';
 import 'services/api_key_store.dart';
 import 'services/backtest_store.dart';
+import 'services/calibration_store.dart';
 import 'services/disk_cache.dart';
 import 'services/estimator.dart';
 import 'services/live_socket.dart';
 import 'services/alerts.dart';
 import 'services/prefs_store.dart';
+import 'services/season_sim.dart';
 import 'services/slip_store.dart';
 import 'services/sport_api.dart';
 import 'services/trend_engine.dart';
@@ -305,6 +310,7 @@ final trendsProvider = FutureProvider<TrendsResult>((ref) async {
   final ids = ref.watch(trendLeagueIdsProvider);
   final cache = ref.read(standingsCacheProvider);
   final progress = ref.read(trendsProgressProvider.notifier);
+  final calib = ref.watch(calibrationProvider);
 
   if (api == null || ids.isEmpty) {
     return const TrendsResult(trends: [], matches: 0, leagues: 0, failed: 0);
@@ -368,7 +374,7 @@ final trendsProvider = FutureProvider<TrendsResult>((ref) async {
     trends.addAll(trendsFor(f, t.rowOf(f.homeId), t.rowOf(f.awayId)));
     final est = estimateMatch(t, f.homeId, f.awayId);
     if (est != null) {
-      estimates.add(FixtureEstimate(f, est));
+      estimates.add(FixtureEstimate(f, calibrateEstimate(est, calib)));
       estimateLog.add(EstimateLogEntry(
         fixtureId: f.id,
         date: f.date,
@@ -549,6 +555,7 @@ final trophiesProvider =
 final estimateProvider =
     FutureProvider.family<MatchEstimate?, (int, int, int)>((ref, k) async {
   if (k.$1 == 0) return null;
+  final calib = ref.watch(calibrationProvider);
   final tableFuture = ref.watch(standingsProvider(k.$1).future);
   // A H2H hibája nem akaszthatja meg a becslést: a hibát azonnal elnyeljük.
   final h2hSafe = ref
@@ -557,7 +564,8 @@ final estimateProvider =
   try {
     final t = await tableFuture;
     final h2h = await h2hSafe;
-    return estimateMatch(t, k.$2, k.$3, h2h: h2h);
+    final raw = estimateMatch(t, k.$2, k.$3, h2h: h2h);
+    return raw == null ? null : calibrateEstimate(raw, calib);
   } catch (_) {
     return null;
   }
@@ -582,8 +590,11 @@ final backtestReportProvider =
       final dt = DateTime.tryParse(d);
       if (dt == null || dt.isAfter(today)) continue;
       try {
-        final list =
-            await api.fixturesByDate(dt, ttl: const Duration(minutes: 30));
+        final isPast = dt.isBefore(DateTime(today.year, today.month, today.day));
+        final list = await api.fixturesByDate(
+          dt,
+          ttl: isPast ? const Duration(hours: 12) : const Duration(minutes: 30),
+        );
         for (final f in list) {
           fx[f.id] = f;
         }
@@ -592,6 +603,14 @@ final backtestReportProvider =
       }
     }
   }
+  // A lejátszott meccsekből frissítjük a kalibrációs táblát is.
+  final calib = buildCalibration(log, fx);
+  Future.microtask(() {
+    try {
+      final cur = ref.read(calibrationProvider);
+      if (!cur.sameAs(calib)) ref.read(calibrationProvider.notifier).set(calib);
+    } catch (_) {}
+  });
   return buildReport(log, fx);
 });
 
@@ -685,3 +704,177 @@ class NotifSyncNotifier extends Notifier<DateTime?> {
 
 final notifSyncProvider =
     NotifierProvider<NotifSyncNotifier, DateTime?>(NotifSyncNotifier.new);
+
+// ==================== KALIBRÁCIÓ ====================
+class CalibrationNotifier extends Notifier<Calibration> {
+  @override
+  Calibration build() {
+    _load();
+    return Calibration.empty();
+  }
+
+  Future<void> _load() async {
+    final c = await CalibrationStore.load();
+    if (c != null) state = c;
+  }
+
+  void set(Calibration c) {
+    state = c;
+    CalibrationStore.save(c);
+  }
+}
+
+final calibrationProvider =
+    NotifierProvider<CalibrationNotifier, Calibration>(CalibrationNotifier.new);
+
+// ==================== EMLÉKEZTETŐK (EGY-EGY MECCSRE) ====================
+const int _reminderIdBase = 1500000000;
+
+class RemindersNotifier extends Notifier<Map<int, Reminder>> {
+  @override
+  Map<int, Reminder> build() {
+    _load();
+    return const <int, Reminder>{};
+  }
+
+  Future<void> _load() async {
+    final m = await ReminderStore.load();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final live = <int, Reminder>{
+      for (final e in m.entries)
+        if (e.value.atMs > now) e.key: e.value,
+    };
+    if (live.length != m.length) ReminderStore.save(live);
+    if (live.isNotEmpty) state = live;
+  }
+
+  /// Bekapcsolja vagy lemondja a meccs emlékeztetőjét.
+  Future<ReminderResult> toggle(Fixture f) async {
+    if (state.containsKey(f.id)) {
+      await Alerts.cancel(_reminderIdBase + f.id);
+      final next = <int, Reminder>{...state}..remove(f.id);
+      state = next;
+      ReminderStore.save(next);
+      return ReminderResult.removed;
+    }
+    final kick = f.kickoff;
+    if (kick == null) return ReminderResult.noTime;
+    final minutes = ref.read(settingsProvider).kickoffMinutes;
+    final at = kick.subtract(Duration(minutes: minutes));
+    if (!at.isAfter(DateTime.now().add(const Duration(minutes: 1)))) {
+      return ReminderResult.tooLate;
+    }
+    await Alerts.requestPermission();
+    final title = '⏰ ${f.homeLabel} – ${f.awayLabel}';
+    final body =
+        '${leagueHu(f.leagueName)} • kezdés ${DateFormat('HH:mm').format(kick)}';
+    await Alerts.scheduleKickoff(
+      id: _reminderIdBase + f.id,
+      title: title,
+      body: body,
+      at: at,
+    );
+    final next = <int, Reminder>{
+      ...state,
+      f.id: Reminder(
+        fixtureId: f.id,
+        title: title,
+        body: body,
+        atMs: at.millisecondsSinceEpoch,
+      ),
+    };
+    state = next;
+    ReminderStore.save(next);
+    return ReminderResult.added;
+  }
+}
+
+final remindersProvider =
+    NotifierProvider<RemindersNotifier, Map<int, Reminder>>(
+        RemindersNotifier.new);
+
+// ==================== BAJNOKSÁG-SZŰRŐ (KIEMELÉS / ELREJTÉS) ====================
+class LeaguePrefsNotifier extends Notifier<LeaguePrefs> {
+  @override
+  LeaguePrefs build() {
+    _load();
+    return const LeaguePrefs();
+  }
+
+  Future<void> _load() async {
+    state = await LeaguePrefsStore.load();
+  }
+
+  void _set(Set<int> pinned, Set<int> hidden) {
+    state = LeaguePrefs(pinned: pinned, hidden: hidden);
+    LeaguePrefsStore.save(state);
+  }
+
+  void togglePin(int id) {
+    final pinned = <int>{...state.pinned};
+    final hidden = <int>{...state.hidden};
+    if (!pinned.remove(id)) {
+      pinned.add(id);
+      hidden.remove(id);
+    }
+    _set(pinned, hidden);
+  }
+
+  void toggleHide(int id) {
+    final pinned = <int>{...state.pinned};
+    final hidden = <int>{...state.hidden};
+    if (!hidden.remove(id)) {
+      hidden.add(id);
+      pinned.remove(id);
+    }
+    _set(pinned, hidden);
+  }
+
+  void clearHidden() => _set(state.pinned, <int>{});
+}
+
+final leaguePrefsProvider =
+    NotifierProvider<LeaguePrefsNotifier, LeaguePrefs>(LeaguePrefsNotifier.new);
+
+final allLeaguesProvider =
+    FutureProvider.autoDispose<List<LeagueInfo>>((ref) async {
+  final api = ref.watch(apiProvider);
+  if (api == null) return [];
+  return api.leagues();
+});
+
+// ==================== KEDVENCEK HETI NAPTÁRA ====================
+/// A kedvenc csapatok meccsei a következő 7 napra (napi lekérések, 60 percig
+/// gyorsítótárazva): dátum (yyyy-MM-dd) -> meccsek.
+final favCalendarProvider =
+    FutureProvider.autoDispose<Map<String, List<Fixture>>>((ref) async {
+  final api = ref.watch(apiProvider);
+  final favs = ref.watch(favoritesProvider);
+  if (api == null || favs.isEmpty) return <String, List<Fixture>>{};
+
+  final now = DateTime.now();
+  final out = <String, List<Fixture>>{};
+  for (var d = 0; d < 7; d++) {
+    final day = DateTime(now.year, now.month, now.day + d);
+    final key = DateFormat('yyyy-MM-dd').format(day);
+    try {
+      final list = await api.fixturesByDate(day, ttl: const Duration(minutes: 60));
+      final mine = [
+        for (final f in list)
+          if (favs.containsKey(f.homeId) || favs.containsKey(f.awayId)) f,
+      ]..sort(byKickoff);
+      if (mine.isNotEmpty) out[key] = mine;
+    } on ApiException catch (e) {
+      if (e.status == 429 || e.status == 401) rethrow;
+    }
+  }
+  return out;
+});
+
+// ==================== TABELLA-ELŐREJELZÉS ====================
+final projectionProvider =
+    FutureProvider.autoDispose.family<Projection?, int>((ref, leagueId) async {
+  final t = await ref.watch(standingsProvider(leagueId).future);
+  if (t.rows.isEmpty) return null;
+  return simulateSeason(t);
+});

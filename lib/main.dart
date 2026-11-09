@@ -59,6 +59,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final Set<int> _visited = {0};
   Timer? _timer;
   AppLifecycleState? _lifecycle;
+  bool _settled = false;
 
   @override
   void initState() {
@@ -91,6 +92,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _syncNotifications() {
     ref.read(notifSyncProvider.notifier).sync();
+  }
+
+  /// Indításkor egyszer kiértékeli a naplózott trendeket és becsléseket
+  /// (a lejátszott meccsek alapján), így a kalibráció magától frissül.
+  void _settleBacktest() {
+    if (_settled || ref.read(apiProvider) == null) return;
+    _settled = true;
+    final sub = ref.listenManual(backtestReportProvider, (_, __) {});
+    ref.read(backtestReportProvider.future).then(
+      (_) => sub.close(),
+      onError: (Object _) => sub.close(),
+    );
   }
 
   @override
@@ -150,7 +163,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ref.watch(liveProvider.select((s) => s.conn));
 
     // Kezdés-értesítések újraütemezése, ha bármi változik.
-    ref.listen(apiProvider, (_, __) => _syncNotifications());
+    ref.listen(apiProvider, (_, __) {
+      _syncNotifications();
+      _settleBacktest();
+    });
     ref.listen(favoritesProvider, (_, __) => _syncNotifications());
     ref.listen(
       settingsProvider.select((s) => (s.notifyKickoff, s.kickoffMinutes)),
