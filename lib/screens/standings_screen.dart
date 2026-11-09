@@ -5,9 +5,10 @@ import '../models/leaders.dart';
 import '../models/standing.dart';
 import '../providers.dart';
 import '../widgets/common.dart';
+import 'projection_tab.dart';
 import 'team_screen.dart';
 
-/// Bajnokság képernyő: tabella + góllövők + gólpasszok + lapok.
+/// Bajnokság képernyő: tabella + góllövők + gólpasszok + lapok + előrejelzés.
 /// A `highlight` csapatok a tabellán ki vannak emelve.
 class StandingsScreen extends ConsumerWidget {
   final int leagueId;
@@ -24,7 +25,7 @@ class StandingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: Text(title),
@@ -37,6 +38,7 @@ class StandingsScreen extends ConsumerWidget {
               Tab(text: 'Góllövők'),
               Tab(text: 'Gólpasszok'),
               Tab(text: 'Lapok'),
+              Tab(text: 'Előrejelzés'),
             ],
           ),
         ),
@@ -46,6 +48,7 @@ class StandingsScreen extends ConsumerWidget {
             _LeadersTab(leagueId: leagueId, kind: LeaderKind.scorers),
             _LeadersTab(leagueId: leagueId, kind: LeaderKind.assists),
             _LeadersTab(leagueId: leagueId, kind: LeaderKind.cards),
+            ProjectionTab(leagueId: leagueId),
           ],
         ),
       ),

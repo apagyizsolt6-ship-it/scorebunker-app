@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../data/league_catalog.dart';
+import '../models/calibration.dart';
 import '../models/fixture.dart';
 import '../models/match_extras.dart';
 import '../models/standing.dart';
@@ -12,6 +13,9 @@ import '../providers.dart';
 import '../services/estimator.dart';
 import '../services/sport_api.dart';
 import '../widgets/common.dart';
+import '../widgets/form_spark.dart';
+import '../widgets/reminder_button.dart';
+import 'compare_screen.dart';
 import 'standings_screen.dart';
 import 'team_screen.dart';
 
@@ -87,6 +91,7 @@ class MatchDetailScreen extends ConsumerWidget {
     final standings = ref.watch(standingsProvider(f.leagueId));
     final h2h = ref.watch(h2hProvider((f.homeId, f.awayId)));
     final favs = ref.watch(favoritesProvider);
+    final calib = ref.watch(calibrationProvider);
     final d = detail.valueOrNull;
 
     void toggleFav(int id, String name) =>
@@ -98,6 +103,7 @@ class MatchDetailScreen extends ConsumerWidget {
             maxLines: 1, overflow: TextOverflow.ellipsis),
         centerTitle: true,
         actions: [
+          ReminderButton(fixture: f),
           IconButton(
             tooltip: 'Frissítés',
             icon: const Icon(Icons.refresh),
@@ -270,11 +276,12 @@ class MatchDetailScreen extends ConsumerWidget {
                 final home = t.rowOf(f.homeId);
                 final away = t.rowOf(f.awayId);
                 if (home == null && away == null) return const SizedBox.shrink();
+                final rawEst = f.isFinished
+                    ? null
+                    : estimateMatch(t, f.homeId, f.awayId,
+                        h2h: h2h.valueOrNull);
                 final est =
-                    f.isFinished
-                        ? null
-                        : estimateMatch(t, f.homeId, f.awayId,
-                            h2h: h2h.valueOrNull);
+                    rawEst == null ? null : calibrateEstimate(rawEst, calib);
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -282,19 +289,34 @@ class MatchDetailScreen extends ConsumerWidget {
                     _TableCard(home: home, away: away),
                     Align(
                       alignment: Alignment.centerRight,
-                      child: TextButton.icon(
-                        icon: const Icon(Icons.leaderboard_outlined, size: 18),
-                        label: const Text('Teljes tabella'),
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => StandingsScreen(
-                              leagueId: f.leagueId,
-                              title: leagueHu(f.leagueName),
-                              highlight: {f.homeId, f.awayId},
+                      child: Wrap(
+                        children: [
+                          TextButton.icon(
+                            icon: const Icon(Icons.compare_arrows, size: 18),
+                            label: const Text('Összehasonlítás'),
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => CompareScreen(fixture: f),
+                              ),
                             ),
                           ),
-                        ),
+                          TextButton.icon(
+                            icon: const Icon(Icons.leaderboard_outlined,
+                                size: 18),
+                            label: const Text('Teljes tabella'),
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => StandingsScreen(
+                                  leagueId: f.leagueId,
+                                  title: leagueHu(f.leagueName),
+                                  highlight: {f.homeId, f.awayId},
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     if (est != null) ...[
@@ -699,6 +721,8 @@ class _FormColumn extends StatelessWidget {
               );
             }).toList(),
           ),
+          const SizedBox(height: 8),
+          FormSpark(form: form),
           const SizedBox(height: 8),
           for (final m in form.reversed)
             Padding(

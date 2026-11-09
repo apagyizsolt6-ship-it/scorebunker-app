@@ -7,6 +7,7 @@ import '../models/fixture.dart';
 import '../models/live_score.dart';
 import '../providers.dart';
 import '../widgets/common.dart';
+import 'leagues_screen.dart';
 import 'match_detail_screen.dart';
 import 'standings_screen.dart';
 
@@ -35,9 +36,11 @@ class _Group {
   final String geo;
   final bool isTop;
   final bool isFav;
+  final bool isPin;
   final Map<String, List<Fixture>> leagues = {};
 
-  _Group(this.key, this.title, this.geo, this.isTop, {this.isFav = false});
+  _Group(this.key, this.title, this.geo, this.isTop,
+      {this.isFav = false, this.isPin = false});
 
   int get count => leagues.values.fold(0, (s, l) => s + l.length);
   int get live =>
@@ -55,15 +58,28 @@ class _SectionLabel {
   const _SectionLabel(this.text);
 }
 
-List<_Group> _groupFixtures(List<Fixture> list, Set<int> favIds) {
+class _HiddenNote {
+  final int count;
+  const _HiddenNote(this.count);
+}
+
+List<_Group> _groupFixtures(
+    List<Fixture> list, Set<int> favIds, Set<int> pinned) {
   final tops = <String, _Group>{};
   final countries = <String, _Group>{};
   _Group? fav;
+  _Group? pin;
 
   for (final m in list) {
     if (favIds.contains(m.homeId) || favIds.contains(m.awayId)) {
       final fg = fav ??= _Group('fav', 'Kedvenceim', '', true, isFav: true);
       fg.leagues.putIfAbsent(m.leagueName, () => []).add(m);
+    }
+    if (pinned.contains(m.leagueId)) {
+      final pg = pin ??=
+          _Group('pin', 'Kiemelt bajnokságaim', '', true, isPin: true);
+      pg.leagues.putIfAbsent(m.leagueName, () => []).add(m);
+      continue;
     }
     final t = topLeagueOf(m);
     if (t != null) {
@@ -98,8 +114,10 @@ List<_Group> _groupFixtures(List<Fixture> list, Set<int> favIds) {
     });
 
   final favGroup = fav;
+  final pinGroup = pin;
   return [
     if (favGroup != null) favGroup,
+    if (pinGroup != null) pinGroup,
     ...topList.map((e) => e.value),
     ...countryList,
   ];
@@ -157,8 +175,15 @@ class MatchesPage extends ConsumerWidget {
     final favIds = favs.keys.toSet();
     final all = ref.watch(liveFixturesProvider).valueOrNull ?? const <Fixture>[];
 
-    final liveCount = all.where((m) => m.isLive).length;
-    final allKeys = _groupFixtures(all, favIds).map((g) => g.key).toSet();
+    final lp = ref.watch(leaguePrefsProvider);
+    final visibleAll = [
+      for (final m in all)
+        if (!lp.hidden.contains(m.leagueId)) m,
+    ];
+
+    final liveCount = visibleAll.where((m) => m.isLive).length;
+    final allKeys =
+        _groupFixtures(visibleAll, favIds, lp.pinned).map((g) => g.key).toSet();
     final allCollapsed = allKeys.isNotEmpty && allKeys.every(collapsed.contains);
 
     return Scaffold(
@@ -167,6 +192,14 @@ class MatchesPage extends ConsumerWidget {
         centerTitle: true,
         actions: [
           const _LiveDot(),
+          IconButton(
+            tooltip: 'Bajnokság-szűrő',
+            icon: const Icon(Icons.tune),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const LeaguesScreen()),
+            ),
+          ),
           IconButton(
             tooltip: allCollapsed ? 'Összes kinyitása' : 'Összes összecsukása',
             icon: Icon(allCollapsed ? Icons.unfold_more : Icons.unfold_less),
@@ -205,8 +238,13 @@ class MatchesPage extends ConsumerWidget {
                     onRetry: () => ref.invalidate(fixturesProvider),
                   ),
                   data: (list) {
+                    final visible = [
+                      for (final m in list)
+                        if (!lp.hidden.contains(m.leagueId)) m,
+                    ];
+                    final hiddenCount = list.length - visible.length;
                     final filtered = _applyFilter(
-                      _applySearch(list, query),
+                      _applySearch(visible, query),
                       filter,
                       favOnly,
                       favIds,
@@ -215,6 +253,9 @@ class MatchesPage extends ConsumerWidget {
                       String msg = 'Nincs találat.';
                       if (list.isEmpty) {
                         msg = 'Nincs meccs ezen a napon.';
+                      } else if (visible.isEmpty && hiddenCount > 0) {
+                        msg =
+                            '$hiddenCount meccs el van rejtve a bajnokság-szűrő miatt.';
                       } else if (favOnly && favIds.isEmpty) {
                         msg = 'Még nincs kedvenc csapatod.\n'
                             'Egy meccskártyán nyomd hosszan, és jelöld meg a csapatot.';
@@ -228,7 +269,7 @@ class MatchesPage extends ConsumerWidget {
                         ),
                       );
                     }
-                    final groups = _groupFixtures(filtered, favIds);
+                    final groups = _groupFixtures(filtered, favIds, lp.pinned);
                     // Keresés közben mindent mutatunk.
                     final hidden =
                         query.trim().isEmpty ? collapsed : <String>{};
@@ -237,7 +278,7 @@ class MatchesPage extends ConsumerWidget {
                     var topLabel = false;
                     var countryLabel = false;
                     for (final g in groups) {
-                      if (!g.isFav && g.isTop && !topLabel) {
+                      if (!g.isFav && !g.isPin && g.isTop && !topLabel) {
                         items.add(const _SectionLabel('⭐ TOP BAJNOKSÁGOK'));
                         topLabel = true;
                       }
@@ -266,6 +307,10 @@ class MatchesPage extends ConsumerWidget {
                       }
                     }
 
+                    if (hiddenCount > 0 && query.trim().isEmpty) {
+                      items.add(_HiddenNote(hiddenCount));
+                    }
+
                     return RefreshIndicator(
                       onRefresh: () async {
                         ref.invalidate(fixturesProvider);
@@ -277,6 +322,23 @@ class MatchesPage extends ConsumerWidget {
                         itemCount: items.length,
                         itemBuilder: (context, index) {
                           final item = items[index];
+                          if (item is _HiddenNote) {
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: TextButton.icon(
+                                icon: const Icon(
+                                    Icons.visibility_off_outlined, size: 18),
+                                label: Text(
+                                    '${item.count} meccs el van rejtve a bajnokság-szűrő miatt'),
+                                onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const LeaguesScreen(),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
                           if (item is _SectionLabel) {
                             return Padding(
                               padding: const EdgeInsets.only(
@@ -539,7 +601,9 @@ class _GroupHeader extends StatelessWidget {
       child: Material(
         color: group.isFav
             ? Colors.amber.withValues(alpha: 0.22)
-            : group.isTop
+            : group.isPin
+                ? scheme.tertiaryContainer.withValues(alpha: 0.6)
+                : group.isTop
                 ? scheme.primaryContainer.withValues(alpha: 0.55)
                 : scheme.surfaceContainerHighest.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(12),
@@ -550,7 +614,7 @@ class _GroupHeader extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
-                Text(group.isFav ? '⭐' : _flagFor(group.geo),
+                Text(group.isFav ? '⭐' : (group.isPin ? '📌' : _flagFor(group.geo)),
                     style: const TextStyle(fontSize: 20)),
                 const SizedBox(width: 10),
                 Expanded(

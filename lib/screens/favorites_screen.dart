@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers.dart';
+import 'fav_calendar_screen.dart';
 import 'team_screen.dart';
 
 class FavoritesScreen extends ConsumerWidget {
@@ -14,7 +15,20 @@ class FavoritesScreen extends ConsumerWidget {
       ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Kedvenc csapatok'), centerTitle: true),
+      appBar: AppBar(
+        title: const Text('Kedvenc csapatok'),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: 'Heti naptár',
+            icon: const Icon(Icons.calendar_month_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const FavCalendarScreen()),
+            ),
+          ),
+        ],
+      ),
       body: entries.isEmpty
           ? const Center(
               child: Padding(

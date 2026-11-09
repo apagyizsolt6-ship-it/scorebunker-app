@@ -8,7 +8,10 @@ import '../services/alerts.dart';
 import '../services/sport_api.dart';
 import '../widgets/common.dart';
 import 'backtest_screen.dart';
+import 'backup_screen.dart';
+import 'fav_calendar_screen.dart';
 import 'favorites_screen.dart';
+import 'leagues_screen.dart';
 
 class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
@@ -153,6 +156,29 @@ class ProfilePage extends ConsumerWidget {
             ),
           ),
           ListTile(
+            leading: const Icon(Icons.calendar_month_outlined),
+            title: const Text('Kedvencek heti naptára'),
+            subtitle: const Text('A következő 7 nap meccsei, emlékeztetővel'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const FavCalendarScreen()),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.tune),
+            title: const Text('Bajnokság-szűrő'),
+            subtitle: Text(
+              'Kiemelt: ${ref.watch(leaguePrefsProvider).pinned.length} • '
+              'Rejtett: ${ref.watch(leaguePrefsProvider).hidden.length}',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const LeaguesScreen()),
+            ),
+          ),
+          ListTile(
             leading: const Icon(Icons.bolt_outlined),
             title: const Text('Élő frissítés'),
             subtitle: Text(liveText),
@@ -260,12 +286,22 @@ class ProfilePage extends ConsumerWidget {
           ),
           const Divider(),
           ListTile(
+            leading: const Icon(Icons.backup_outlined),
+            title: const Text('Mentés és visszaállítás'),
+            subtitle: const Text('Kedvencek, szelvények, beállítások'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const BackupScreen()),
+            ),
+          ),
+          ListTile(
             leading: const Icon(Icons.info_outline),
             title: const Text('Névjegy'),
             onTap: () => showAboutDialog(
               context: context,
               applicationName: 'APISCORES',
-              applicationVersion: '1.4.0',
+              applicationVersion: '1.7.0',
               children: const [
                 SizedBox(height: 8),
                 Text(

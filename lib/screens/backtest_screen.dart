@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/backtest.dart';
+import '../models/calibration.dart';
 import '../models/trend.dart';
 import '../providers.dart';
 import '../services/backtest_store.dart';
@@ -129,9 +130,31 @@ class BacktestScreen extends ConsumerWidget {
         ),
       );
     }
+    final calib = ref.watch(calibrationProvider);
+    String grp(int g) => calib.active(g)
+        ? 'aktív'
+        : 'gyűjti az adatot (${calib.total(g)} / ${Calibration.minSamples})';
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        _card('Önkalibráció', [
+          Text(
+            calib.isActive
+                ? 'Aktív: a becslések a ${calib.matches} kiértékelt meccs '
+                    'tapasztalatai alapján automatikusan korrigálva vannak.'
+                : 'Még gyűjti az adatot (${calib.matches} kiértékelt meccs). '
+                    'Körülbelül 200 meccsnél kezd élni a korrekció.',
+            style: const TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Kimenetel: ${grp(0)}\nGólok: ${grp(1)}\nBTTS: ${grp(2)}',
+            style: TextStyle(
+              fontSize: 11,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ]),
         _card('Trendek (szelvényre tehető fajták)', [
           for (final e in _trendLabels.entries)
             _row(context, e.value, r.trends[e.key] ?? Tally()),
