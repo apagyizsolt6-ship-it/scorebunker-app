@@ -9,6 +9,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      contents: write   # a GitHub Release létrehozásához
 
     steps:
       - name: Checkout
@@ -26,64 +28,68 @@ jobs:
           channel: 'stable'
           cache: true
 
+      # Állandó aláíró kulcs: így az új APK a régi fölé települ (nem kell törölni az appot).
+      # A kulcsot a GitHub cache őrzi; ha 7 napig nem fut build, törölhetik.
+      - name: Restore signing key (cache)
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: scorebunker-signing-key-v1
+
+      # Opcionális, véglegesebb megoldás: a kulcs base64-ben a DEBUG_KEYSTORE_B64 secretben.
+      - name: Signing key from secret (optional)
+        env:
+          KS_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            mkdir -p ~/.android
+            echo "$KS_B64" | base64 -d > ~/.android/debug.keystore
+            echo "Signing key restored from secret"
+          else
+            echo "No secret set, using cached or newly generated key"
+          fi
+
       - name: Create Flutter project structure
         run: |
           flutter create . --project-name scorebunker_app --org com.scorebunker
           echo "Flutter project structure generated"
 
-      - name: Add INTERNET permission
+      # Engedélyek (internet, értesítések, rezgés), az app neve (APISCORES)
+      # és a core library desugaring (flutter_local_notifications).
+      - name: Patch Android project
         run: |
-          # Biztosan beszúrjuk az INTERNET permission-t a <manifest> után
-          if ! grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml; then
-            sed -i 's|<manifest[^>]*>|&\n    <uses-permission android:name="android.permission.INTERNET"/>|' android/app/src/main/AndroidManifest.xml
-          fi
-          echo "=== AndroidManifest.xml (permission check) ==="
-          grep -n "INTERNET\|<manifest\|<application" android/app/src/main/AndroidManifest.xml || true
-
-      - name: Enable core library desugaring (required by flutter_local_notifications)
-        run: |
-          if [ -f android/app/build.gradle.kts ]; then
-            # Enable desugaring
-            if ! grep -q "isCoreLibraryDesugaringEnabled" android/app/build.gradle.kts; then
-              sed -i '/compileOptions {/a\        isCoreLibraryDesugaringEnabled = true' android/app/build.gradle.kts
-            fi
-
-            # Add dependency
-            if ! grep -q "desugar_jdk_libs" android/app/build.gradle.kts; then
-              if grep -q "dependencies {" android/app/build.gradle.kts; then
-                sed -i '/dependencies {/a\    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' android/app/build.gradle.kts
-              else
-                echo -e "\ndependencies {\n    coreLibraryDesugaring(\"com.android.tools:desugar_jdk_libs:2.1.4\")\n}" >> android/app/build.gradle.kts
-              fi
-            fi
-            echo "Desugaring enabled in build.gradle.kts"
-            cat android/app/build.gradle.kts
-          elif [ -f android/app/build.gradle ]; then
-            if ! grep -q "coreLibraryDesugaringEnabled" android/app/build.gradle; then
-              sed -i '/compileOptions {/a\        coreLibraryDesugaringEnabled true' android/app/build.gradle
-            fi
-            if ! grep -q "desugar_jdk_libs" android/app/build.gradle; then
-              if grep -q "dependencies {" android/app/build.gradle; then
-                sed -i '/dependencies {/a\    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"' android/app/build.gradle
-              else
-                echo -e "\ndependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'\n}" >> android/app/build.gradle
-              fi
-            fi
-            echo "Desugaring enabled in build.gradle"
-          else
-            echo "ERROR: No build.gradle(.kts) found!"
-            exit 1
-          fi
+          python3 tools/patch_android.py
+          echo "=== AndroidManifest.xml ==="
+          grep -n "uses-permission\|android:label" android/app/src/main/AndroidManifest.xml || true
 
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --build-number=${{ github.run_number }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: scorebunker-apk
+          name: apiscores-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
+
+      # Minden build egy GitHub Release-be is kerül: a telefon böngészőjében a
+      # repo "Releases" oldaláról közvetlenül letölthető és telepíthető az APK.
+      - name: Name the APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk APISCORES-build-${{ github.run_number }}.apk
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: APISCORES build ${{ github.run_number }}
+          body: |
+            Automatikus build (commit ${{ github.sha }}).
+            Telepítés: töltsd le az APK-t a telefonra, és nyisd meg.
+          files: APISCORES-build-${{ github.run_number }}.apk
+          make_latest: true
