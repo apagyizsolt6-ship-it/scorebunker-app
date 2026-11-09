@@ -73,7 +73,7 @@ double _poisson(int k, double lambda) {
 
 /// A bajnokság hazai előnye a tabella `form` meccseiből (gól-arány gyöke),
 /// 1,10-es előzetes érték felé húzva.
-double _leagueHomeFactor(LeagueTable t) {
+double leagueHomeFactor(LeagueTable t) {
   var homeGoals = 0;
   var awayGoals = 0;
   var n = 0;
@@ -126,7 +126,7 @@ MatchEstimate? estimateMatch(
   final avg = totalGoals / totalPlayed; // gól / csapat / meccs
   if (avg <= 0) return null;
 
-  final fh = _leagueHomeFactor(table);
+  final fh = leagueHomeFactor(table);
   final fa = 1 / fh;
 
   double rate(int goals, int played) =>

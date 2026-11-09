@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import '../models/fixture.dart';
 import '../models/leaders.dart';
+import '../models/league_info.dart';
 import '../models/match_extras.dart';
 import '../models/player_stats.dart';
 import '../models/standing.dart';
@@ -294,5 +295,11 @@ class SportApi {
         '${shirt == null ? '' : '&shirt_number=$shirt'}';
     final j = await _get('/players/stats?$q', ttl: const Duration(hours: 6));
     return PlayerStats.fromJson(j);
+  }
+
+  /// Az összes bajnokság (országonként csoportosítva), 24 óráig gyorsítótárazva.
+  Future<List<LeagueInfo>> leagues() async {
+    final j = await _get('/leagues', ttl: const Duration(hours: 24));
+    return LeagueInfo.parseAll(j['data']);
   }
 }

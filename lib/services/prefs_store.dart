@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/reminder.dart';
+
 /// Kedvenc csapatok: csapatazonosító -> név.
 class FavoritesStore {
   static const _k = 'fav_teams_v1';
@@ -117,5 +119,71 @@ class NotifStore {
   static Future<void> save(List<int> ids) async {
     final p = await SharedPreferences.getInstance();
     await p.setStringList(_k, [for (final i in ids) '$i']);
+  }
+}
+
+/// Kiemelt és elrejtett bajnokságok.
+class LeaguePrefs {
+  final Set<int> pinned;
+  final Set<int> hidden;
+  const LeaguePrefs({this.pinned = const {}, this.hidden = const {}});
+}
+
+class LeaguePrefsStore {
+  static const _k = 'league_prefs_v1';
+
+  static Future<LeaguePrefs> load() async {
+    final p = await SharedPreferences.getInstance();
+    final s = p.getString(_k);
+    if (s == null || s.isEmpty) return const LeaguePrefs();
+    try {
+      final j = jsonDecode(s);
+      if (j is! Map) return const LeaguePrefs();
+      Set<int> read(dynamic l) => {
+            if (l is List)
+              for (final x in l)
+                if (x is num) x.toInt(),
+          };
+      return LeaguePrefs(pinned: read(j['p']), hidden: read(j['h']));
+    } catch (_) {
+      return const LeaguePrefs();
+    }
+  }
+
+  static Future<void> save(LeaguePrefs lp) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(
+      _k,
+      jsonEncode({'p': lp.pinned.toList(), 'h': lp.hidden.toList()}),
+    );
+  }
+}
+
+/// Egy-egy meccsre kért emlékeztetők (meccsazonosító -> emlékeztető).
+class ReminderStore {
+  static const _k = 'reminders_v1';
+
+  static Future<Map<int, Reminder>> load() async {
+    final p = await SharedPreferences.getInstance();
+    final s = p.getString(_k);
+    final out = <int, Reminder>{};
+    if (s == null || s.isEmpty) return out;
+    try {
+      final j = jsonDecode(s);
+      if (j is List) {
+        for (final x in j) {
+          if (x is Map) {
+            final r = Reminder.fromJson(Map<String, dynamic>.from(x));
+            if (r.fixtureId != 0) out[r.fixtureId] = r;
+          }
+        }
+      }
+    } catch (_) {}
+    return out;
+  }
+
+  static Future<void> save(Map<int, Reminder> m) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_k, jsonEncode([for (final r in m.values) r.toJson()]));
   }
 }
