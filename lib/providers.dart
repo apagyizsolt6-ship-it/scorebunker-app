@@ -22,6 +22,7 @@ import 'models/trend.dart';
 import 'services/api_key_store.dart';
 import 'services/backtest_store.dart';
 import 'services/calibration_store.dart';
+import 'services/elo.dart';
 import 'services/disk_cache.dart';
 import 'services/estimator.dart';
 import 'services/live_socket.dart';
@@ -31,6 +32,7 @@ import 'services/season_sim.dart';
 import 'services/slip_store.dart';
 import 'services/sport_api.dart';
 import 'services/trend_engine.dart';
+import 'services/update_check.dart';
 
 // ==================== API-KULCS ====================
 class ApiKeyNotifier extends AsyncNotifier<String?> {
@@ -103,6 +105,26 @@ class SettingsNotifier extends Notifier<AppSettings> {
 
   void setNotifyGoals(bool v) {
     state = state.copyWith(notifyGoals: v);
+    SettingsStore.save(state);
+  }
+
+  void setNotifyStatus(bool v) {
+    state = state.copyWith(notifyStatus: v);
+    SettingsStore.save(state);
+  }
+
+  void setNotifyRed(bool v) {
+    state = state.copyWith(notifyRed: v);
+    SettingsStore.save(state);
+  }
+
+  void setQuietEnabled(bool v) {
+    state = state.copyWith(quietEnabled: v);
+    SettingsStore.save(state);
+  }
+
+  void setQuietHours(int start, int end) {
+    state = state.copyWith(quietStart: start, quietEnd: end);
     SettingsStore.save(state);
   }
 }
@@ -311,6 +333,7 @@ final trendsProvider = FutureProvider<TrendsResult>((ref) async {
   final cache = ref.read(standingsCacheProvider);
   final progress = ref.read(trendsProgressProvider.notifier);
   final calib = ref.watch(calibrationProvider);
+  final elo = ref.watch(eloProvider);
 
   if (api == null || ids.isEmpty) {
     return const TrendsResult(trends: [], matches: 0, leagues: 0, failed: 0);
@@ -372,7 +395,7 @@ final trendsProvider = FutureProvider<TrendsResult>((ref) async {
     matches++;
     if (seenLeagues.add(f.leagueId)) leagues++;
     trends.addAll(trendsFor(f, t.rowOf(f.homeId), t.rowOf(f.awayId)));
-    final est = estimateMatch(t, f.homeId, f.awayId);
+    final est = estimateMatch(t, f.homeId, f.awayId, elo: elo);
     if (est != null) {
       estimates.add(FixtureEstimate(f, calibrateEstimate(est, calib)));
       estimateLog.add(EstimateLogEntry(
@@ -556,6 +579,7 @@ final estimateProvider =
     FutureProvider.family<MatchEstimate?, (int, int, int)>((ref, k) async {
   if (k.$1 == 0) return null;
   final calib = ref.watch(calibrationProvider);
+  final elo = ref.watch(eloProvider);
   final tableFuture = ref.watch(standingsProvider(k.$1).future);
   // A H2H hibája nem akaszthatja meg a becslést: a hibát azonnal elnyeljük.
   final h2hSafe = ref
@@ -564,7 +588,7 @@ final estimateProvider =
   try {
     final t = await tableFuture;
     final h2h = await h2hSafe;
-    final raw = estimateMatch(t, k.$2, k.$3, h2h: h2h);
+    final raw = estimateMatch(t, k.$2, k.$3, h2h: h2h, elo: elo);
     return raw == null ? null : calibrateEstimate(raw, calib);
   } catch (_) {
     return null;
@@ -605,10 +629,12 @@ final backtestReportProvider =
   }
   // A lejátszott meccsekből frissítjük a kalibrációs táblát is.
   final calib = buildCalibration(log, fx);
+  final reliability = buildReliability(log, fx);
   Future.microtask(() {
     try {
       final cur = ref.read(calibrationProvider);
       if (!cur.sameAs(calib)) ref.read(calibrationProvider.notifier).set(calib);
+      ref.read(reliabilityProvider.notifier).setIfChanged(reliability);
     } catch (_) {}
   });
   return buildReport(log, fx);
@@ -687,6 +713,7 @@ class NotifSyncNotifier extends Notifier<DateTime?> {
         }
         final at = kick.subtract(Duration(minutes: s.kickoffMinutes));
         if (!at.isAfter(now.add(const Duration(minutes: 1)))) continue;
+        if (isQuiet(s, at)) continue; // csendes órákban nem jelzünk
         await Alerts.scheduleKickoff(
           id: f.id,
           title: '⚽ ${f.homeLabel} – ${f.awayLabel}',
@@ -878,3 +905,140 @@ final projectionProvider =
   if (t.rows.isEmpty) return null;
   return simulateSeason(t);
 });
+
+// ==================== BAJNOKSÁGONKÉNTI MEGBÍZHATÓSÁG ====================
+class ReliabilityNotifier extends Notifier<Map<int, LeagueReliability>> {
+  @override
+  Map<int, LeagueReliability> build() {
+    _load();
+    return const <int, LeagueReliability>{};
+  }
+
+  Future<void> _load() async {
+    final m = await ReliabilityStore.load();
+    if (m.isNotEmpty) state = m;
+  }
+
+  void setIfChanged(Map<int, LeagueReliability> m) {
+    final cur = state;
+    var same = cur.length == m.length;
+    if (same) {
+      for (final e in m.entries) {
+        final c = cur[e.key];
+        if (c == null || !c.sameAs(e.value)) {
+          same = false;
+          break;
+        }
+      }
+    }
+    if (same) return;
+    state = m;
+    ReliabilityStore.save(m);
+  }
+}
+
+final reliabilityProvider =
+    NotifierProvider<ReliabilityNotifier, Map<int, LeagueReliability>>(
+        ReliabilityNotifier.new);
+
+// ==================== ELO CSAPATERŐ ====================
+/// A lejátszott meccsekből (az utolsó ~45 nap, utána naponta egy lekérés)
+/// épített Elo-szerű csapaterő. A múltbeli napok listája a lemezen marad.
+class EloNotifier extends Notifier<EloState> {
+  bool _busy = false;
+  Future<void>? _loaded;
+
+  @override
+  EloState build() {
+    _loaded = _load();
+    return EloState.empty;
+  }
+
+  Future<void> _load() async {
+    final s = await EloStore.load();
+    if (s != null) state = s;
+  }
+
+  String _key(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
+
+  Future<void> sync() async {
+    if (_busy) return;
+    final api = ref.read(apiProvider);
+    if (api == null) return;
+    _busy = true;
+    try {
+      await _loaded;
+      final now = DateTime.now();
+      final yesterday = DateTime(now.year, now.month, now.day - 1);
+      DateTime start = yesterday.subtract(const Duration(days: 44));
+      final last = DateTime.tryParse(state.lastDate);
+      if (last != null) {
+        start = DateTime(last.year, last.month, last.day + 1);
+      }
+      if (start.isAfter(yesterday)) return;
+
+      var s = state;
+      var cur = start;
+      var processed = 0;
+      while (!cur.isAfter(yesterday) && processed < 60) {
+        try {
+          final list =
+              await api.fixturesByDate(cur, ttl: const Duration(days: 14));
+          s = applyEloResults(s, list, _key(cur));
+          processed++;
+        } on ApiException catch (e) {
+          if (e.status == 429 || e.status == 401) break;
+          // más hiba: ezt a napot kihagyjuk
+          s = EloState(
+              ratings: s.ratings, games: s.games, lastDate: _key(cur));
+        } catch (_) {
+          break;
+        }
+        cur = DateTime(cur.year, cur.month, cur.day + 1);
+      }
+      if (processed > 0) {
+        state = s;
+        await EloStore.save(s);
+      }
+    } finally {
+      _busy = false;
+    }
+  }
+}
+
+final eloProvider = NotifierProvider<EloNotifier, EloState>(EloNotifier.new);
+
+// ==================== KÖVETETT MECCSEK ====================
+class FollowedNotifier extends Notifier<Set<int>> {
+  @override
+  Set<int> build() {
+    _load();
+    return const <int>{};
+  }
+
+  Future<void> _load() async {
+    final s = await FollowedStore.load();
+    if (s.isNotEmpty) state = s;
+  }
+
+  void toggle(int fixtureId) {
+    final next = <int>{...state};
+    if (!next.remove(fixtureId)) {
+      next.add(fixtureId);
+      while (next.length > 30) {
+        next.remove(next.first);
+      }
+    }
+    state = next;
+    FollowedStore.save(next);
+  }
+}
+
+final followedProvider =
+    NotifierProvider<FollowedNotifier, Set<int>>(FollowedNotifier.new);
+
+// ==================== FRISSÍTÉS-ELLENŐRZÉS ====================
+final updateProvider = FutureProvider<UpdateInfo?>((ref) => checkForUpdate());
+
+/// Az a build-szám, amelynek a jelzését a felhasználó elnyomta.
+final updateDismissedProvider = StateProvider<int>((ref) => 0);

@@ -14,6 +14,8 @@ import 'screens/slip_page.dart';
 import 'screens/splash_screen.dart';
 import 'screens/trends_page.dart';
 import 'services/alerts.dart';
+import 'services/prefs_store.dart';
+import 'widgets/update_banner.dart';
 
 void main() {
   runApp(const ProviderScope(child: ScorebunkerApp()));
@@ -60,6 +62,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Timer? _timer;
   AppLifecycleState? _lifecycle;
   bool _settled = false;
+  int _tickCount = 0;
+
+  /// Meccsazonosító -> utoljára látott állapot (NS / LIVE / HT / FT).
+  final Map<int, String> _lastState = {};
+
+  /// Meccsazonosító -> eddig látott piros lapok száma.
+  final Map<int, int> _redSeen = {};
 
   @override
   void initState() {
@@ -86,12 +95,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (_lifecycle != null && _lifecycle != AppLifecycleState.resumed) return;
     if (!_isToday()) return;
     final list = ref.read(liveFixturesProvider).valueOrNull;
-    if (list == null || !list.any((m) => m.isLive)) return;
+    if (list == null) return;
+    final live = [for (final m in list) if (m.isLive) m];
+    if (live.isEmpty) return;
     ref.invalidate(fixturesProvider);
+    _tickCount++;
+    if (_tickCount % 3 == 0) _checkRedCards(live);
   }
 
   void _syncNotifications() {
     ref.read(notifSyncProvider.notifier).sync();
+  }
+
+  void _syncElo() {
+    ref.read(eloProvider.notifier).sync();
   }
 
   /// Indításkor egyszer kiértékeli a naplózott trendeket és becsléseket
@@ -115,12 +132,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ref.invalidate(fixturesProvider);
       }
       _syncNotifications();
+      _syncElo();
     }
+  }
+
+  bool _isFav(Fixture f) {
+    final favs = ref.read(favoritesProvider);
+    return favs.containsKey(f.homeId) || favs.containsKey(f.awayId);
   }
 
   /// Gól-jelzés a kedvenc csapatok meccsein (megnyitott appnál).
   void _onScores(Map<int, LiveScore>? prev, Map<int, LiveScore> next) {
-    if (!ref.read(settingsProvider).notifyGoals) return;
+    final settings = ref.read(settingsProvider);
+    if (!settings.notifyGoals || isQuiet(settings)) return;
     final favs = ref.read(favoritesProvider);
     if (favs.isEmpty) return;
     final base = ref.read(fixturesProvider).valueOrNull ?? const <Fixture>[];
@@ -136,8 +160,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           break;
         }
       }
-      if (f == null) continue;
-      if (!(favs.containsKey(f.homeId) || favs.containsKey(f.awayId))) continue;
+      if (f == null || !_isFav(f)) continue;
 
       final prevTotal = before == null
           ? (f.homeScore ?? 0) + (f.awayScore ?? 0)
@@ -157,6 +180,62 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
+  /// Félidő és végeredmény jelzése a kedvenc csapatok meccsein.
+  void _onFixtures(AsyncValue<List<Fixture>> next) {
+    final list = next.valueOrNull;
+    if (list == null || !_isToday()) return;
+    final s = ref.read(settingsProvider);
+    final favs = ref.read(favoritesProvider);
+
+    for (final f in list) {
+      final cur = f.isFinished ? 'FT' : (f.isLive ? (f.minute == 'HT' ? 'HT' : 'LIVE') : 'NS');
+      final old = _lastState[f.id];
+      _lastState[f.id] = cur;
+      if (old == null || old == cur) continue; // első látás: nincs jelzés
+      if (!s.notifyStatus || favs.isEmpty || isQuiet(s) || !_isFav(f)) continue;
+
+      final score =
+          '${f.homeLabel} ${f.homeScore ?? 0} – ${f.awayScore ?? 0} ${f.awayLabel}';
+      if (cur == 'HT' && old == 'LIVE') {
+        Alerts.showGoal(id: 1100000000 + f.id, title: '⏸ Félidő', body: score);
+      } else if (cur == 'FT' && (old == 'LIVE' || old == 'HT')) {
+        Alerts.showGoal(id: 1100000000 + f.id, title: '🏁 Vége', body: score);
+      }
+    }
+  }
+
+  /// Piros lap jelzése: a kedvenc csapatok élő meccseinek eseményeit
+  /// 3 percenként ellenőrzi (csak amíg az app meg van nyitva).
+  Future<void> _checkRedCards(List<Fixture> live) async {
+    final s = ref.read(settingsProvider);
+    if (!s.notifyRed) return;
+    final api = ref.read(apiProvider);
+    if (api == null || ref.read(favoritesProvider).isEmpty) return;
+
+    for (final f in live) {
+      if (!_isFav(f)) continue;
+      try {
+        final d = await api.fixtureDetail(f.id);
+        if (d == null) continue;
+        final reds = [
+          for (final e in d.events)
+            if (e.type.contains('red')) e,
+        ]..sort((a, b) => a.sortKey.compareTo(b.sortKey));
+        final before = _redSeen[f.id];
+        _redSeen[f.id] = reds.length;
+        if (before == null || reds.length <= before) continue;
+        if (isQuiet(ref.read(settingsProvider))) continue;
+        final e = reds.last;
+        final team = e.side == 'home' ? f.homeLabel : f.awayLabel;
+        Alerts.showGoal(
+          id: 1200000000 + f.id,
+          title: '🟥 Piros lap',
+          body: '$team: ${e.player} (${e.minute})',
+        );
+      } catch (_) {}
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Az élő kapcsolat itt indul el és marad életben.
@@ -166,15 +245,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ref.listen(apiProvider, (_, __) {
       _syncNotifications();
       _settleBacktest();
+      _syncElo();
     });
     ref.listen(favoritesProvider, (_, __) => _syncNotifications());
     ref.listen(
-      settingsProvider.select((s) => (s.notifyKickoff, s.kickoffMinutes)),
+      settingsProvider.select((s) => (
+            s.notifyKickoff,
+            s.kickoffMinutes,
+            s.quietEnabled,
+            s.quietStart,
+            s.quietEnd,
+          )),
       (_, __) => _syncNotifications(),
     );
     ref.listen<Map<int, LiveScore>>(
       liveProvider.select((s) => s.scores),
       _onScores,
+    );
+    ref.listen(selectedDateProvider, (_, __) => _lastState.clear());
+    ref.listen<AsyncValue<List<Fixture>>>(
+      liveFixturesProvider,
+      (_, next) => _onFixtures(next),
     );
 
     const pages = <Widget>[
@@ -184,12 +275,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ProfilePage(),
     ];
 
+    final stack = IndexedStack(
+      index: _index,
+      children: [
+        for (var i = 0; i < pages.length; i++)
+          _visited.contains(i) ? pages[i] : const SizedBox.shrink(),
+      ],
+    );
+    final banner = updateVisible(ref);
+
     return Scaffold(
-      body: IndexedStack(
-        index: _index,
+      body: Column(
         children: [
-          for (var i = 0; i < pages.length; i++)
-            _visited.contains(i) ? pages[i] : const SizedBox.shrink(),
+          const UpdateBanner(),
+          Expanded(
+            child: banner
+                ? MediaQuery.removePadding(
+                    context: context,
+                    removeTop: true,
+                    child: stack,
+                  )
+                : stack,
+          ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
