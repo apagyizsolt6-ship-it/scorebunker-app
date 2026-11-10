@@ -201,3 +201,77 @@ BacktestReport buildReport(BacktestLog log, Map<int, Fixture> fx) {
     loggedMatches: matches.length,
   );
 }
+
+/// Egy bajnokság eddigi találati aránya a modell három fő tippjén
+/// (a legvalószínűbb 1X2 kimenetel, Over/Under 2.5, BTTS).
+class LeagueReliability {
+  final String name;
+  final int matches;
+  final int hits; // a három piacon összesen
+  const LeagueReliability({
+    required this.name,
+    required this.matches,
+    required this.hits,
+  });
+
+  int get picks => matches * 3;
+  double get rate => picks == 0 ? 0 : hits / picks;
+
+  Map<String, dynamic> toJson() => {'n': name, 'm': matches, 'h': hits};
+
+  factory LeagueReliability.fromJson(Map<String, dynamic> j) =>
+      LeagueReliability(
+        name: (j['n'] ?? '').toString(),
+        matches: (j['m'] as num?)?.toInt() ?? 0,
+        hits: (j['h'] as num?)?.toInt() ?? 0,
+      );
+
+  bool sameAs(LeagueReliability o) =>
+      name == o.name && matches == o.matches && hits == o.hits;
+}
+
+/// Bajnokságonkénti találati arány a naplóból és a lejátszott meccsekből.
+Map<int, LeagueReliability> buildReliability(
+  BacktestLog log,
+  Map<int, Fixture> fx,
+) {
+  final matches = <int, int>{};
+  final hits = <int, int>{};
+  final names = <int, String>{};
+
+  for (final e in log.estimates) {
+    final f = fx[e.fixtureId];
+    if (f == null || !f.isFinished || !f.hasScore || f.leagueId == 0) continue;
+    final h = f.homeScore!;
+    final a = f.awayScore!;
+
+    // 1X2: a legvalószínűbb kimenetel
+    final top = e.home >= e.draw && e.home >= e.away
+        ? 0
+        : (e.draw >= e.away ? 1 : 2);
+    final actual = h > a ? 0 : (h == a ? 1 : 2);
+    var count = top == actual ? 1 : 0;
+
+    // gólok: Over, ha a becslés legalább 50%
+    final over = e.over25 >= 0.5;
+    if (over ? h + a >= 3 : h + a <= 2) count++;
+
+    // BTTS: igen, ha a becslés legalább 50%
+    final yes = e.btts >= 0.5;
+    if (yes ? (h > 0 && a > 0) : (h == 0 || a == 0)) count++;
+
+    final id = f.leagueId;
+    matches[id] = (matches[id] ?? 0) + 1;
+    hits[id] = (hits[id] ?? 0) + count;
+    names[id] = f.leagueName;
+  }
+
+  return {
+    for (final id in matches.keys)
+      id: LeagueReliability(
+        name: names[id] ?? '',
+        matches: matches[id]!,
+        hits: hits[id] ?? 0,
+      ),
+  };
+}

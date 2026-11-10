@@ -1,3 +1,4 @@
+import '../services/system_bets.dart';
 import 'fixture.dart';
 
 /// Egy tipp típusa egy meccsen.
@@ -27,7 +28,7 @@ extension PickX on Pick {
 
 enum LegResult { pending, won, lost, voided }
 
-enum SlipStatus { pending, won, lost, voided }
+enum SlipStatus { pending, won, partial, lost, voided }
 
 String fmtOdds(double v) => v.toStringAsFixed(2);
 
@@ -111,6 +112,9 @@ class Slip {
   /// így a szelvényhez nem kell többet eredményt lekérni.
   final List<int>? settled;
 
+  /// Rendszerkötés: k a legs.length-ből. Null: sima kötés (minden tipp kell).
+  final int? systemK;
+
   const Slip({
     required this.id,
     required this.name,
@@ -118,7 +122,11 @@ class Slip {
     required this.createdAt,
     required this.legs,
     this.settled,
+    this.systemK,
   });
+
+  bool get isSystem =>
+      systemK != null && systemK! >= 2 && systemK! < legs.length;
 
   double get totalOdds => legs.fold<double>(1.0, (p, l) => p * l.odds);
 
@@ -129,6 +137,7 @@ class Slip {
         createdAt: createdAt,
         legs: legs,
         settled: results,
+        systemK: systemK,
       );
 
   Map<String, dynamic> toJson() => {
@@ -138,6 +147,7 @@ class Slip {
         'createdAt': createdAt.toIso8601String(),
         'legs': [for (final l in legs) l.toJson()],
         'settled': settled,
+        'k': systemK,
       };
 
   factory Slip.fromJson(Map<String, dynamic> j) {
@@ -160,6 +170,7 @@ class Slip {
                 if (x is num) x.toInt(),
             ]
           : null,
+      systemK: (j['k'] as num?)?.toInt(),
     );
   }
 }
@@ -192,9 +203,13 @@ class SlipEval {
   /// Az érvénytelen (elhalasztott / törölt) tippek nélküli összodds.
   final double effectiveOdds;
 
-  const SlipEval(this.status, this.legs, this.effectiveOdds);
+  /// Rendszerkötésnél a végső kifizetés (ha minden tipp eldőlt).
+  final double? payoutAmount;
 
-  double payout(double stake) => stake * effectiveOdds;
+  const SlipEval(this.status, this.legs, this.effectiveOdds,
+      {this.payoutAmount});
+
+  double payout(double stake) => payoutAmount ?? stake * effectiveOdds;
 }
 
 SlipEval evaluateSlip(Slip s, Map<int, Fixture> fixtures) {
@@ -214,6 +229,30 @@ SlipEval evaluateSlip(Slip s, Map<int, Fixture> fixtures) {
   var odds = 1.0;
   for (var i = 0; i < s.legs.length; i++) {
     if (res[i] != LegResult.voided) odds *= s.legs[i].odds;
+  }
+
+  // Rendszerkötés: addig függő, amíg minden tipp el nem dől.
+  final k = s.systemK;
+  if (s.isSystem && k != null) {
+    final n = s.legs.length;
+    if (res.contains(LegResult.pending)) {
+      return SlipEval(SlipStatus.pending, res, odds);
+    }
+    if (res.every((r) => r == LegResult.voided)) {
+      return SlipEval(SlipStatus.voided, res, 1.0, payoutAmount: s.stake);
+    }
+    final winners = <double>[
+      for (var i = 0; i < n; i++)
+        if (res[i] == LegResult.won)
+          s.legs[i].odds
+        else if (res[i] == LegResult.voided)
+          1.0,
+    ];
+    final payout = systemPayout(winners, n, k, s.stake);
+    final st = payout <= 0
+        ? SlipStatus.lost
+        : (payout >= s.stake ? SlipStatus.won : SlipStatus.partial);
+    return SlipEval(st, res, payout / s.stake, payoutAmount: payout);
   }
 
   final SlipStatus status;
