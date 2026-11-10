@@ -218,6 +218,7 @@ class _PickCard extends ConsumerWidget {
     final f = cand.fixture;
     final scheme = Theme.of(context).colorScheme;
     final inSlip = ref.watch(draftProvider)[f.id]?.pick == cand.pick;
+    final rel = ref.watch(reliabilityProvider)[f.leagueId];
     final pct = (cand.p * 100).round();
 
     return Card(
@@ -246,6 +247,20 @@ class _PickCard extends ConsumerWidget {
                     Text(leagueHu(f.leagueName),
                         style: TextStyle(
                             fontSize: 11, color: scheme.onSurfaceVariant)),
+                    if (rel != null && rel.matches >= 15)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          'Ebben a ligában a modell eddig ${(rel.rate * 100).round()}%-ot talált el (${rel.matches} meccs)',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: rel.rate >= 0.60
+                                ? Colors.green
+                                : (rel.rate >= 0.50 ? Colors.orange : Colors.red),
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 8),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),

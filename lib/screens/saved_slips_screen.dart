@@ -6,6 +6,7 @@ import '../models/fixture.dart';
 import '../models/slip.dart';
 import '../providers.dart';
 import '../services/sport_api.dart';
+import '../services/system_bets.dart';
 
 /// Mentett szelvények: a meccsek végeredménye alapján automatikusan kiértékelve.
 class SavedSlipsScreen extends ConsumerWidget {
@@ -44,6 +45,9 @@ class SavedSlipsScreen extends ConsumerWidget {
       switch (e.status) {
         case SlipStatus.won:
           won++;
+          balance += e.payout(s.stake) - s.stake;
+        case SlipStatus.partial:
+          lost++;
           balance += e.payout(s.stake) - s.stake;
         case SlipStatus.lost:
           lost++;
@@ -154,6 +158,7 @@ class _SlipCard extends ConsumerWidget {
 
   (String, Color) _status() => switch (eval.status) {
         SlipStatus.won => ('Nyert', Colors.green),
+        SlipStatus.partial => ('Részleges', Colors.deepOrange),
         SlipStatus.lost => ('Vesztett', Colors.red),
         SlipStatus.pending => ('Függőben', Colors.orange),
         SlipStatus.voided => ('Érvénytelen', Colors.grey),
@@ -173,13 +178,25 @@ class _SlipCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final (String label, Color color) = _status();
     final scheme = Theme.of(context).colorScheme;
+    final maxPayout = slip.isSystem
+        ? systemPayout(
+            [for (final l in slip.legs) l.odds],
+            slip.legs.length,
+            slip.systemK!,
+            slip.stake,
+          )
+        : slip.stake * slip.totalOdds;
     final money = eval.status == SlipStatus.won
         ? 'Nyeremény: ${fmtAmount(eval.payout(slip.stake))}'
-        : eval.status == SlipStatus.pending
-            ? 'Várható: ${fmtAmount(slip.stake * slip.totalOdds)}'
-            : eval.status == SlipStatus.voided
-                ? 'Tét visszajár: ${fmtAmount(slip.stake)}'
-                : 'Elvesztett tét: ${fmtAmount(slip.stake)}';
+        : eval.status == SlipStatus.partial
+            ? 'Részleges nyeremény: ${fmtAmount(eval.payout(slip.stake))} (tét: ${fmtAmount(slip.stake)})'
+            : eval.status == SlipStatus.pending
+                ? (slip.isSystem
+                    ? 'Max nyeremény: ${fmtAmount(maxPayout)}'
+                    : 'Várható: ${fmtAmount(maxPayout)}')
+                : eval.status == SlipStatus.voided
+                    ? 'Tét visszajár: ${fmtAmount(slip.stake)}'
+                    : 'Elvesztett tét: ${fmtAmount(slip.stake)}';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -239,7 +256,7 @@ class _SlipCard extends ConsumerWidget {
             ),
             Text(
               '${DateFormat('yyyy.MM.dd HH:mm').format(slip.createdAt)} • '
-              'Összodds ${fmtOdds(eval.effectiveOdds)} • Tét ${fmtAmount(slip.stake)}',
+              '${slip.isSystem ? 'Rendszer ${slip.systemK} a ${slip.legs.length}-ből' : 'Összodds ${fmtOdds(eval.effectiveOdds)}'} • Tét ${fmtAmount(slip.stake)}',
               style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 4),

@@ -5,6 +5,7 @@ import '../data/league_catalog.dart';
 import '../models/slip.dart';
 import '../providers.dart';
 import '../services/estimator.dart';
+import '../services/system_bets.dart';
 import '../widgets/estimate_line.dart';
 
 /// A most épített szelvény: odds-ok szerkesztése, tét, várható nyeremény, mentés.
@@ -19,6 +20,9 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
   final TextEditingController _stake = TextEditingController();
   final TextEditingController _name = TextEditingController();
 
+  /// Rendszerkötés: k a n-ből. Null: sima kötés (minden tipp kell).
+  int? _k;
+
   @override
   void dispose() {
     _stake.dispose();
@@ -31,7 +35,7 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
     return (v == null || v <= 0) ? null : v;
   }
 
-  void _save(Map<int, DraftLeg> draft) {
+  void _save(Map<int, DraftLeg> draft, int? systemK) {
     final stake = _stakeValue;
     if (stake == null || draft.isEmpty) return;
     for (final l in draft.values) {
@@ -48,6 +52,7 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
       name: name,
       stake: stake,
       createdAt: now,
+      systemK: systemK,
       legs: [
         for (final l in draft.values)
           SlipLeg(
@@ -83,6 +88,16 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
     }
     final stake = _stakeValue;
     final canSave = draft.isNotEmpty && allOdds && stake != null;
+
+    // Rendszerkötés: k a n-ből (3 vagy több tippnél).
+    final n = draft.length;
+    final k = (_k == null || _k! < 2 || _k! > n) ? n : _k!;
+    final isSystem = n >= 3 && k < n;
+    final oddsList = [for (final l in draft.values) l.odds ?? 1.0];
+    final combos = isSystem ? binomial(n, k) : 1;
+    final outcomes = (isSystem && allOdds && stake != null)
+        ? systemOutcomes(oddsList, k, stake)
+        : const <SystemOutcome>[];
 
     // Becsült együttes esély (a meccseket függetlennek tekintve).
     var combined = 1.0;
@@ -189,6 +204,30 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
                     isDense: true,
                   ),
                 ),
+                if (n >= 3) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text('Játékmód',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                      DropdownButton<int>(
+                        value: k,
+                        items: [
+                          for (var kk = n; kk >= 2; kk--)
+                            DropdownMenuItem(
+                              value: kk,
+                              child: Text(kk == n
+                                  ? 'Kötés (mind a $n)'
+                                  : '$kk a $n-ből'),
+                            ),
+                        ],
+                        onChanged: (v) => setState(() => _k = v),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 12),
                 TextField(
                   controller: _name,
@@ -207,10 +246,18 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _SumRow('Események', '${draft.length}'),
-                        _SumRow('Összodds',
-                            allOdds ? fmtOdds(total) : 'adj meg minden oddsot'),
+                        if (isSystem) ...[
+                          _SumRow('Rendszer', '$k a $n-ből'),
+                          _SumRow('Kombinációk száma', '$combos'),
+                          _SumRow(
+                            'Tét kombinációnként',
+                            stake == null ? '–' : fmtAmount(stake / combos),
+                          ),
+                        ] else
+                          _SumRow('Összodds',
+                              allOdds ? fmtOdds(total) : 'adj meg minden oddsot'),
                         _SumRow('Tét', stake == null ? '–' : fmtAmount(stake)),
-                        if (haveAllEstimates) ...[
+                        if (haveAllEstimates && !isSystem) ...[
                           _SumRow('Becsült együttes esély',
                               '${(combined * 100).toStringAsFixed(1)}%'),
                           _SumRow('Fair összodds', fmtOdds(fairOdds(combined))),
@@ -221,18 +268,43 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
                             ),
                         ],
                         const Divider(),
-                        _SumRow(
-                          'Várható nyeremény',
-                          (allOdds && stake != null)
-                              ? fmtAmount(stake * total)
-                              : '–',
-                          bold: true,
-                        ),
+                        if (isSystem) ...[
+                          _SumRow(
+                            'Max nyeremény (mind talál)',
+                            outcomes.isEmpty
+                                ? '–'
+                                : fmtAmount(outcomes.last.maxPayout),
+                            bold: true,
+                          ),
+                          for (final o in outcomes.reversed)
+                            _SumRow(
+                              '${o.hits} találat',
+                              o.minPayout == o.maxPayout
+                                  ? fmtAmount(o.maxPayout)
+                                  : '${fmtAmount(o.minPayout)} – ${fmtAmount(o.maxPayout)}',
+                            ),
+                        ] else
+                          _SumRow(
+                            'Várható nyeremény',
+                            (allOdds && stake != null)
+                                ? fmtAmount(stake * total)
+                                : '–',
+                            bold: true,
+                          ),
                       ],
                     ),
                   ),
                 ),
-                if (haveAllEstimates)
+                if (isSystem)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      'A tét egyenlően oszlik el a kombinációk között. A találatonkénti '
+                      'sáv a legkisebb és a legnagyobb odds-ú tippek bejövetelét feltételezi.',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                if (haveAllEstimates && !isSystem)
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
                     child: Text(
@@ -246,7 +318,8 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
                 FilledButton.icon(
                   icon: const Icon(Icons.save_outlined),
                   label: const Text('Szelvény mentése'),
-                  onPressed: canSave ? () => _save(draft) : null,
+                  onPressed:
+                      canSave ? () => _save(draft, isSystem ? k : null) : null,
                 ),
                 if (!canSave)
                   const Padding(

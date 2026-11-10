@@ -6,6 +6,7 @@ import '../models/live_score.dart';
 import '../providers.dart';
 import '../services/alerts.dart';
 import '../services/sport_api.dart';
+import '../services/update_check.dart';
 import '../widgets/common.dart';
 import 'backtest_screen.dart';
 import 'backup_screen.dart';
@@ -117,6 +118,7 @@ class ProfilePage extends ConsumerWidget {
     final settings = ref.watch(settingsProvider);
     final favCount = ref.watch(favoritesProvider).length;
     final conn = ref.watch(liveProvider.select((s) => s.conn));
+    final elo = ref.watch(eloProvider);
 
     final liveText = switch (conn) {
       LiveConn.on => 'Kapcsolódva',
@@ -251,6 +253,85 @@ class ProfilePage extends ConsumerWidget {
               ref.read(settingsProvider.notifier).setNotifyGoals(v);
             },
           ),
+          SwitchListTile(
+            secondary: const Icon(Icons.flag_outlined),
+            title: const Text('Félidő és végeredmény'),
+            subtitle: const Text('A kedvenc csapatok meccsein, megnyitott appnál'),
+            value: settings.notifyStatus,
+            onChanged: (v) async {
+              if (v) await Alerts.requestPermission();
+              ref.read(settingsProvider.notifier).setNotifyStatus(v);
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.square_rounded, color: Colors.red),
+            title: const Text('Piros lap'),
+            subtitle: const Text(
+                'A kedvenc csapatok élő meccsein (3 percenként ellenőrzi)'),
+            value: settings.notifyRed,
+            onChanged: (v) async {
+              if (v) await Alerts.requestPermission();
+              ref.read(settingsProvider.notifier).setNotifyRed(v);
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.bedtime_outlined),
+            title: const Text('Csendes órák'),
+            subtitle: Text(settings.quietEnabled
+                ? '${settings.quietStart.toString().padLeft(2, '0')}:00 – '
+                    '${settings.quietEnd.toString().padLeft(2, '0')}:00 között nem jön értesítés'
+                : 'Kikapcsolva'),
+            value: settings.quietEnabled,
+            onChanged: (v) =>
+                ref.read(settingsProvider.notifier).setQuietEnabled(v),
+          ),
+          if (settings.quietEnabled)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  const Text('Tól'),
+                  const SizedBox(width: 8),
+                  DropdownButton<int>(
+                    value: settings.quietStart,
+                    items: [
+                      for (var h = 0; h < 24; h++)
+                        DropdownMenuItem(
+                          value: h,
+                          child: Text('${h.toString().padLeft(2, '0')}:00'),
+                        ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) {
+                        ref
+                            .read(settingsProvider.notifier)
+                            .setQuietHours(v, settings.quietEnd);
+                      }
+                    },
+                  ),
+                  const Spacer(),
+                  const Text('Ig'),
+                  const SizedBox(width: 8),
+                  DropdownButton<int>(
+                    value: settings.quietEnd,
+                    items: [
+                      for (var h = 0; h < 24; h++)
+                        DropdownMenuItem(
+                          value: h,
+                          child: Text('${h.toString().padLeft(2, '0')}:00'),
+                        ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) {
+                        ref
+                            .read(settingsProvider.notifier)
+                            .setQuietHours(settings.quietStart, v);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
           const Divider(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -286,6 +367,37 @@ class ProfilePage extends ConsumerWidget {
           ),
           const Divider(),
           ListTile(
+            leading: const Icon(Icons.speed_outlined),
+            title: const Text('Csapaterő (Elo)'),
+            subtitle: Text(elo.isEmpty
+                ? 'Még nincs adat – az első indítás után épül a lejátszott meccsekből'
+                : '${elo.ratings.length} csapat • frissítve: ${elo.lastDate}'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.system_update_alt),
+            title: const Text('Verzió'),
+            subtitle: Text(kBuildNumber > 0
+                ? 'Build $kBuildNumber'
+                : 'Helyi (fejlesztői) build'),
+            trailing: TextButton(
+              onPressed: () async {
+                ref.read(updateDismissedProvider.notifier).state = 0;
+                ref.invalidate(updateProvider);
+                final info = await ref.read(updateProvider.future);
+                if (!context.mounted) return;
+                final msg = info == null
+                    ? 'Nem sikerült ellenőrizni, vagy nincs elérhető Release.'
+                    : (info.isNewer
+                        ? 'Új verzió elérhető: build ${info.build}.'
+                        : 'A legújabb verziót használod.');
+                ScaffoldMessenger.of(context)
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(SnackBar(content: Text(msg)));
+              },
+              child: const Text('Frissítés keresése'),
+            ),
+          ),
+          ListTile(
             leading: const Icon(Icons.backup_outlined),
             title: const Text('Mentés és visszaállítás'),
             subtitle: const Text('Kedvencek, szelvények, beállítások'),
@@ -301,7 +413,7 @@ class ProfilePage extends ConsumerWidget {
             onTap: () => showAboutDialog(
               context: context,
               applicationName: 'APISCORES',
-              applicationVersion: '1.7.0',
+              applicationVersion: '1.8.0',
               children: const [
                 SizedBox(height: 8),
                 Text(

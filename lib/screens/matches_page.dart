@@ -37,10 +37,11 @@ class _Group {
   final bool isTop;
   final bool isFav;
   final bool isPin;
+  final bool isFollow;
   final Map<String, List<Fixture>> leagues = {};
 
   _Group(this.key, this.title, this.geo, this.isTop,
-      {this.isFav = false, this.isPin = false});
+      {this.isFav = false, this.isPin = false, this.isFollow = false});
 
   int get count => leagues.values.fold(0, (s, l) => s + l.length);
   int get live =>
@@ -64,13 +65,23 @@ class _HiddenNote {
 }
 
 List<_Group> _groupFixtures(
-    List<Fixture> list, Set<int> favIds, Set<int> pinned) {
+  List<Fixture> list,
+  Set<int> favIds,
+  Set<int> pinned,
+  Set<int> followed,
+) {
   final tops = <String, _Group>{};
   final countries = <String, _Group>{};
   _Group? fav;
   _Group? pin;
+  _Group? follow;
 
   for (final m in list) {
+    if (followed.contains(m.id)) {
+      final fo = follow ??=
+          _Group('follow', 'Követett meccsek', '', true, isFollow: true);
+      fo.leagues.putIfAbsent(m.leagueName, () => []).add(m);
+    }
     if (favIds.contains(m.homeId) || favIds.contains(m.awayId)) {
       final fg = fav ??= _Group('fav', 'Kedvenceim', '', true, isFav: true);
       fg.leagues.putIfAbsent(m.leagueName, () => []).add(m);
@@ -115,7 +126,9 @@ List<_Group> _groupFixtures(
 
   final favGroup = fav;
   final pinGroup = pin;
+  final followGroup = follow;
   return [
+    if (followGroup != null) followGroup,
     if (favGroup != null) favGroup,
     if (pinGroup != null) pinGroup,
     ...topList.map((e) => e.value),
@@ -176,6 +189,7 @@ class MatchesPage extends ConsumerWidget {
     final all = ref.watch(liveFixturesProvider).valueOrNull ?? const <Fixture>[];
 
     final lp = ref.watch(leaguePrefsProvider);
+    final followed = ref.watch(followedProvider);
     final visibleAll = [
       for (final m in all)
         if (!lp.hidden.contains(m.leagueId)) m,
@@ -183,7 +197,9 @@ class MatchesPage extends ConsumerWidget {
 
     final liveCount = visibleAll.where((m) => m.isLive).length;
     final allKeys =
-        _groupFixtures(visibleAll, favIds, lp.pinned).map((g) => g.key).toSet();
+        _groupFixtures(visibleAll, favIds, lp.pinned, followed)
+            .map((g) => g.key)
+            .toSet();
     final allCollapsed = allKeys.isNotEmpty && allKeys.every(collapsed.contains);
 
     return Scaffold(
@@ -269,7 +285,8 @@ class MatchesPage extends ConsumerWidget {
                         ),
                       );
                     }
-                    final groups = _groupFixtures(filtered, favIds, lp.pinned);
+                    final groups =
+                        _groupFixtures(filtered, favIds, lp.pinned, followed);
                     // Keresés közben mindent mutatunk.
                     final hidden =
                         query.trim().isEmpty ? collapsed : <String>{};
@@ -278,7 +295,11 @@ class MatchesPage extends ConsumerWidget {
                     var topLabel = false;
                     var countryLabel = false;
                     for (final g in groups) {
-                      if (!g.isFav && !g.isPin && g.isTop && !topLabel) {
+                      if (!g.isFav &&
+                          !g.isPin &&
+                          !g.isFollow &&
+                          g.isTop &&
+                          !topLabel) {
                         items.add(const _SectionLabel('⭐ TOP BAJNOKSÁGOK'));
                         topLabel = true;
                       }
@@ -599,7 +620,9 @@ class _GroupHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Material(
-        color: group.isFav
+        color: group.isFollow
+            ? scheme.secondaryContainer.withValues(alpha: 0.7)
+            : group.isFav
             ? Colors.amber.withValues(alpha: 0.22)
             : group.isPin
                 ? scheme.tertiaryContainer.withValues(alpha: 0.6)
@@ -614,7 +637,12 @@ class _GroupHeader extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
-                Text(group.isFav ? '⭐' : (group.isPin ? '📌' : _flagFor(group.geo)),
+                Text(
+                    group.isFollow
+                        ? '👁'
+                        : (group.isFav
+                            ? '⭐'
+                            : (group.isPin ? '📌' : _flagFor(group.geo))),
                     style: const TextStyle(fontSize: 20)),
                 const SizedBox(width: 10),
                 Expanded(

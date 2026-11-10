@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -92,6 +93,8 @@ class MatchDetailScreen extends ConsumerWidget {
     final h2h = ref.watch(h2hProvider((f.homeId, f.awayId)));
     final favs = ref.watch(favoritesProvider);
     final calib = ref.watch(calibrationProvider);
+    final elo = ref.watch(eloProvider);
+    final following = ref.watch(followedProvider).contains(f.id);
     final d = detail.valueOrNull;
 
     void toggleFav(int id, String name) =>
@@ -103,6 +106,18 @@ class MatchDetailScreen extends ConsumerWidget {
             maxLines: 1, overflow: TextOverflow.ellipsis),
         centerTitle: true,
         actions: [
+          if (!f.isFinished)
+            IconButton(
+              tooltip: following
+                  ? 'Követés vége'
+                  : 'Követem (a Meccsek lista tetején marad)',
+              icon: Icon(
+                following ? Icons.push_pin : Icons.push_pin_outlined,
+                color: following ? Colors.amber : null,
+              ),
+              onPressed: () =>
+                  ref.read(followedProvider.notifier).toggle(f.id),
+            ),
           ReminderButton(fixture: f),
           IconButton(
             tooltip: 'Frissítés',
@@ -126,6 +141,9 @@ class MatchDetailScreen extends ConsumerWidget {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
+            // Élő meccsnél a részletek és a statisztika magától frissül.
+            _LiveRefresher(fixtureId: f.id, live: f.isLive),
+
             // Fejléc
             Card(
               child: Padding(
@@ -237,23 +255,46 @@ class MatchDetailScreen extends ConsumerWidget {
                 final events = [...(dd?.events ?? const <FixtureEvent>[])]
                   ..sort((a, b) => a.sortKey.compareTo(b.sortKey));
                 if (events.isEmpty) return const Text('Nincs esemény.');
+                final scheme = Theme.of(context).colorScheme;
+                // Idővonal: középen a perc, a hazai események balra, a vendégek jobbra.
                 return Column(
                   children: events.map((e) {
                     final home = e.side == 'home';
-                    final text = Text('${e.icon} ${e.minute} ${e.player}',
+                    final text = Text('${e.icon} ${e.player}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 13));
                     return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      padding: const EdgeInsets.symmetric(vertical: 4),
                       child: Row(
                         children: [
                           Expanded(
-                              child: Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: home ? text : const SizedBox())),
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              child: home ? text : const SizedBox(),
+                            ),
+                          ),
+                          Container(
+                            width: 52,
+                            margin: const EdgeInsets.symmetric(horizontal: 8),
+                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            decoration: BoxDecoration(
+                              color: scheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              e.minute,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  fontSize: 11, fontWeight: FontWeight.w700),
+                            ),
+                          ),
                           Expanded(
-                              child: Align(
-                                  alignment: Alignment.centerRight,
-                                  child: home ? const SizedBox() : text)),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: home ? const SizedBox() : text,
+                            ),
+                          ),
                         ],
                       ),
                     );
@@ -279,7 +320,7 @@ class MatchDetailScreen extends ConsumerWidget {
                 final rawEst = f.isFinished
                     ? null
                     : estimateMatch(t, f.homeId, f.awayId,
-                        h2h: h2h.valueOrNull);
+                        h2h: h2h.valueOrNull, elo: elo);
                 final est =
                     rawEst == null ? null : calibrateEstimate(rawEst, calib);
                 return Column(
@@ -945,4 +986,51 @@ class _EstimateCard extends StatelessWidget {
       ),
     );
   }
+}
+
+// ==================== ÉLŐ AUTOMATIKUS FRISSÍTÉS ====================
+/// Élő meccsnél 45 másodpercenként újratölti az eseményeket és a statisztikát.
+class _LiveRefresher extends ConsumerStatefulWidget {
+  final int fixtureId;
+  final bool live;
+  const _LiveRefresher({required this.fixtureId, required this.live});
+
+  @override
+  ConsumerState<_LiveRefresher> createState() => _LiveRefresherState();
+}
+
+class _LiveRefresherState extends ConsumerState<_LiveRefresher> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LiveRefresher old) {
+    super.didUpdateWidget(old);
+    if (old.live != widget.live) _sync();
+  }
+
+  void _sync() {
+    _timer?.cancel();
+    _timer = null;
+    if (!widget.live) return;
+    _timer = Timer.periodic(const Duration(seconds: 45), (_) {
+      if (!mounted) return;
+      ref.invalidate(detailProvider(widget.fixtureId));
+      ref.invalidate(statsProvider(widget.fixtureId));
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
