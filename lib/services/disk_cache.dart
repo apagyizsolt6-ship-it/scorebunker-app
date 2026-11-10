@@ -23,10 +23,10 @@ class DiskCache {
     }
   }
 
-  /// A 3 napnál régebbi fájlok törlése (háttérben, hiba esetén csendben).
+  /// A 15 napnál régebbi fájlok törlése (háttérben, hiba esetén csendben).
   static Future<void> _purge(Directory d) async {
     try {
-      final limit = DateTime.now().subtract(const Duration(days: 3));
+      final limit = DateTime.now().subtract(const Duration(days: 15));
       await for (final e in d.list()) {
         if (e is File && (await e.lastModified()).isBefore(limit)) {
           await e.delete();

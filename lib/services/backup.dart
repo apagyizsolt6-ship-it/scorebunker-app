@@ -31,6 +31,12 @@ class BackupService {
     'notify_kickoff': 'b',
     'kickoff_minutes': 'i',
     'notify_goals': 'b',
+    'notify_status': 'b',
+    'notify_red': 'b',
+    'quiet_on': 'b',
+    'quiet_start': 'i',
+    'quiet_end': 'i',
+    'league_rel_v1': 's',
   };
   static const String _apiKey = 'sportapi_key';
 

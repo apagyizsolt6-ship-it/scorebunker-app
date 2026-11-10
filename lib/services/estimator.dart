@@ -3,13 +3,15 @@ import 'dart:math' as math;
 import '../models/fixture.dart';
 import '../models/slip.dart';
 import '../models/standing.dart';
+import 'elo.dart';
 
 /// Poisson-eloszláson alapuló esély-becslés a tabella adataiból.
 /// Nem garancia és nem tipp: csak a bajnokság eddigi eredményeiből számol.
 ///
 /// Összetevők:
 ///  - szezon-átlag támadó / védekező erő (a bajnoki átlag felé húzva),
-///  - a csapat hazai / idegenbeli utolsó meccsei (25% súllyal),
+///  - a csapat hazai / idegenbeli utolsó meccsei (35% súllyal),
+///  - Elo-szerű csapaterő több hét eredményeiből (kis súllyal, ha van),
 ///  - a bajnokság saját hazai előnye,
 ///  - Dixon–Coles korrekció az alacsony gólszámú eredményekre,
 ///  - opcionálisan az egymás elleni meccsek (legfeljebb 20% súllyal).
@@ -60,8 +62,8 @@ const double _shrink = 3;
 /// Dixon–Coles paraméter (negatív: több 0-0 és 1-1, mint a sima Poisson).
 const double _rho = -0.06;
 
-/// Az utolsó meccsek hazai / idegenbeli bontásának súlya.
-const double _venueWeight = 0.25;
+/// Az utolsó meccsek hazai / idegenbeli bontásának súlya (35%).
+const double _venueWeight = 0.35;
 
 double _poisson(int k, double lambda) {
   var p = math.exp(-lambda);
@@ -110,6 +112,7 @@ MatchEstimate? estimateMatch(
   int homeId,
   int awayId, {
   List<Fixture>? h2h,
+  EloState? elo,
 }) {
   final h = table.rowOf(homeId);
   final a = table.rowOf(awayId);
@@ -149,6 +152,19 @@ MatchEstimate? estimateMatch(
 
   var lh = avg * fh * attH * defA;
   var la = avg * fa * attA * defH;
+
+  // Elo-szerű csapaterő: kis korrekció a hosszabb távú erőviszonyok szerint
+  // (100 Elo-pont kb. 4% eltolás a várható gólokban mindkét irányban).
+  if (elo != null) {
+    final d = elo.diff(homeId, awayId);
+    if (d != null) {
+      var t = 0.0004 * d;
+      if (t > 0.25) t = 0.25;
+      if (t < -0.25) t = -0.25;
+      lh *= math.exp(t);
+      la *= math.exp(-t);
+    }
+  }
 
   // Egymás elleni meccsek (ha van elég).
   var usedH2h = false;

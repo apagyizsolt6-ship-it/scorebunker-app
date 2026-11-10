@@ -48,12 +48,28 @@ class AppSettings {
   /// Gól-értesítés a kedvenc csapatok meccsein (megnyitott appnál).
   final bool notifyGoals;
 
+  /// Félidő és végeredmény jelzése a kedvenc csapatok meccsein.
+  final bool notifyStatus;
+
+  /// Piros lap jelzése a kedvenc csapatok meccsein.
+  final bool notifyRed;
+
+  /// Csendes órák: ebben az idősávban nem jön értesítés.
+  final bool quietEnabled;
+  final int quietStart;
+  final int quietEnd;
+
   const AppSettings({
     this.showLogos = false,
     this.themeMode = ThemeMode.system,
     this.notifyKickoff = false,
     this.kickoffMinutes = 30,
     this.notifyGoals = true,
+    this.notifyStatus = true,
+    this.notifyRed = true,
+    this.quietEnabled = false,
+    this.quietStart = 23,
+    this.quietEnd = 7,
   });
 
   AppSettings copyWith({
@@ -62,6 +78,11 @@ class AppSettings {
     bool? notifyKickoff,
     int? kickoffMinutes,
     bool? notifyGoals,
+    bool? notifyStatus,
+    bool? notifyRed,
+    bool? quietEnabled,
+    int? quietStart,
+    int? quietEnd,
   }) =>
       AppSettings(
         showLogos: showLogos ?? this.showLogos,
@@ -69,7 +90,22 @@ class AppSettings {
         notifyKickoff: notifyKickoff ?? this.notifyKickoff,
         kickoffMinutes: kickoffMinutes ?? this.kickoffMinutes,
         notifyGoals: notifyGoals ?? this.notifyGoals,
+        notifyStatus: notifyStatus ?? this.notifyStatus,
+        notifyRed: notifyRed ?? this.notifyRed,
+        quietEnabled: quietEnabled ?? this.quietEnabled,
+        quietStart: quietStart ?? this.quietStart,
+        quietEnd: quietEnd ?? this.quietEnd,
       );
+}
+
+/// Igaz, ha az adott időpont a beállított csendes órákba esik.
+bool isQuiet(AppSettings s, [DateTime? at]) {
+  if (!s.quietEnabled) return false;
+  final h = (at ?? DateTime.now()).hour;
+  final a = s.quietStart;
+  final b = s.quietEnd;
+  if (a == b) return false;
+  return a < b ? (h >= a && h < b) : (h >= a || h < b);
 }
 
 class SettingsStore {
@@ -78,6 +114,11 @@ class SettingsStore {
   static const _nKick = 'notify_kickoff';
   static const _nMin = 'kickoff_minutes';
   static const _nGoal = 'notify_goals';
+  static const _nStatus = 'notify_status';
+  static const _nRed = 'notify_red';
+  static const _qOn = 'quiet_on';
+  static const _qStart = 'quiet_start';
+  static const _qEnd = 'quiet_end';
 
   static Future<AppSettings> load() async {
     final p = await SharedPreferences.getInstance();
@@ -89,6 +130,11 @@ class SettingsStore {
       notifyKickoff: p.getBool(_nKick) ?? false,
       kickoffMinutes: p.getInt(_nMin) ?? 30,
       notifyGoals: p.getBool(_nGoal) ?? true,
+      notifyStatus: p.getBool(_nStatus) ?? true,
+      notifyRed: p.getBool(_nRed) ?? true,
+      quietEnabled: p.getBool(_qOn) ?? false,
+      quietStart: p.getInt(_qStart) ?? 23,
+      quietEnd: p.getInt(_qEnd) ?? 7,
     );
   }
 
@@ -99,6 +145,11 @@ class SettingsStore {
     await p.setBool(_nKick, s.notifyKickoff);
     await p.setInt(_nMin, s.kickoffMinutes);
     await p.setBool(_nGoal, s.notifyGoals);
+    await p.setBool(_nStatus, s.notifyStatus);
+    await p.setBool(_nRed, s.notifyRed);
+    await p.setBool(_qOn, s.quietEnabled);
+    await p.setInt(_qStart, s.quietStart);
+    await p.setInt(_qEnd, s.quietEnd);
   }
 }
 
@@ -185,5 +236,24 @@ class ReminderStore {
   static Future<void> save(Map<int, Reminder> m) async {
     final p = await SharedPreferences.getInstance();
     await p.setString(_k, jsonEncode([for (final r in m.values) r.toJson()]));
+  }
+}
+
+/// A "Követem" módban kiemelt meccsek (meccsazonosítók, legfeljebb 30).
+class FollowedStore {
+  static const _k = 'followed_v1';
+
+  static Future<Set<int>> load() async {
+    final p = await SharedPreferences.getInstance();
+    final l = p.getStringList(_k) ?? const <String>[];
+    return <int>{
+      for (final x in l)
+        if (int.tryParse(x) != null) int.parse(x),
+    };
+  }
+
+  static Future<void> save(Set<int> ids) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList(_k, [for (final i in ids) '$i']);
   }
 }
