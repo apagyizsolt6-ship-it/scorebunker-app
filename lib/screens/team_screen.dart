@@ -47,7 +47,7 @@ class TeamScreen extends ConsumerWidget {
         body: TabBarView(
           children: [
             _OverviewTab(teamId: teamId),
-            _SquadTab(teamId: teamId),
+            _SquadTab(teamId: teamId, teamName: name),
             _TrophiesTab(teamId: teamId),
           ],
         ),
@@ -211,7 +211,8 @@ class _OverviewTab extends ConsumerWidget {
 // ==================== KERET ====================
 class _SquadTab extends ConsumerWidget {
   final int teamId;
-  const _SquadTab({required this.teamId});
+  final String teamName;
+  const _SquadTab({required this.teamId, required this.teamName});
 
   int _order(String pos) {
     final p = pos.toLowerCase();
@@ -262,6 +263,7 @@ class _SquadTab extends ConsumerWidget {
                       builder: (_) => PlayerScreen(
                         name: p.name,
                         teamId: teamId,
+                        teamName: teamName,
                         shirt: p.number,
                         position: p.position,
                         nationality: p.nationality,

@@ -7,10 +7,12 @@ import '../providers.dart';
 import '../services/alerts.dart';
 import '../services/sport_api.dart';
 import '../services/update_check.dart';
+import '../theme.dart';
 import '../widgets/common.dart';
 import 'backtest_screen.dart';
 import 'backup_screen.dart';
 import 'fav_calendar_screen.dart';
+import 'fav_players_screen.dart';
 import 'favorites_screen.dart';
 import 'leagues_screen.dart';
 
@@ -155,6 +157,20 @@ class ProfilePage extends ConsumerWidget {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const FavoritesScreen()),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.person_search_outlined),
+            title: const Text('Kedvenc játékosok'),
+            subtitle: Text(
+              ref.watch(favPlayersProvider).isEmpty
+                  ? 'Még nincs'
+                  : '${ref.watch(favPlayersProvider).length} játékos • szezon-statisztikával',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const FavPlayersScreen()),
             ),
           ),
           ListTile(
@@ -354,6 +370,40 @@ class ProfilePage extends ConsumerWidget {
                   ref.read(settingsProvider.notifier).setThemeMode(s.first),
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text('Akcentszín'),
+                for (var i = 0; i < kAccents.length; i++)
+                  Tooltip(
+                    message: kAccents[i].name,
+                    child: GestureDetector(
+                      onTap: () =>
+                          ref.read(settingsProvider.notifier).setAccent(i),
+                      child: CircleAvatar(
+                        radius: 15,
+                        backgroundColor: kAccents[i].color,
+                        child: settings.accentIndex == i
+                            ? const Icon(Icons.check,
+                                size: 18, color: Colors.white)
+                            : null,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.dark_mode_outlined),
+            title: const Text('Fekete (OLED) téma'),
+            subtitle: const Text('Valódi fekete háttér a sötét témában'),
+            value: settings.oledBlack,
+            onChanged: (v) => ref.read(settingsProvider.notifier).setOled(v),
+          ),
           SwitchListTile(
             secondary: const Icon(Icons.shield_outlined),
             title: const Text('Csapatlogók'),
@@ -413,7 +463,7 @@ class ProfilePage extends ConsumerWidget {
             onTap: () => showAboutDialog(
               context: context,
               applicationName: 'APISCORES',
-              applicationVersion: '1.8.0',
+              applicationVersion: '1.9.0',
               children: const [
                 SizedBox(height: 8),
                 Text(

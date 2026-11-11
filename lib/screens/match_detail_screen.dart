@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -12,6 +13,7 @@ import '../models/match_extras.dart';
 import '../models/standing.dart';
 import '../providers.dart';
 import '../services/estimator.dart';
+import '../services/preview.dart';
 import '../services/sport_api.dart';
 import '../widgets/common.dart';
 import '../widgets/form_spark.dart';
@@ -360,6 +362,15 @@ class MatchDetailScreen extends ConsumerWidget {
                         ],
                       ),
                     ),
+                    if (f.isLive && rawEst != null) ...[
+                      const SizedBox(height: 16),
+                      _title('Élő esély'),
+                      _LiveProbCard(
+                        fixture: f,
+                        base: rawEst,
+                        events: d?.events ?? const <FixtureEvent>[],
+                      ),
+                    ],
                     if (est != null) ...[
                       const SizedBox(height: 16),
                       _title('Becsült esélyek'),
@@ -367,6 +378,19 @@ class MatchDetailScreen extends ConsumerWidget {
                         est: est,
                         home: f.homeLabel,
                         away: f.awayLabel,
+                      ),
+                    ],
+                    if (!f.isFinished) ...[
+                      const SizedBox(height: 16),
+                      _title('Meccs-előnézet'),
+                      _PreviewCard(
+                        lines: buildPreview(
+                          f: f,
+                          home: home,
+                          away: away,
+                          h2h: h2h.valueOrNull,
+                          est: est,
+                        ),
                       ),
                     ],
                     const SizedBox(height: 16),
@@ -1033,4 +1057,138 @@ class _LiveRefresherState extends ConsumerState<_LiveRefresher> {
 
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+// ==================== ÉLŐ ESÉLY ====================
+class _LiveProbCard extends StatelessWidget {
+  final Fixture fixture;
+  final MatchEstimate base;
+  final List<FixtureEvent> events;
+  const _LiveProbCard({
+    required this.fixture,
+    required this.base,
+    required this.events,
+  });
+
+  String _p(double v) => '${(v * 100).round()}%';
+
+  @override
+  Widget build(BuildContext context) {
+    final f = fixture;
+    final gh = f.homeScore ?? 0;
+    final ga = f.awayScore ?? 0;
+    final minute = parseMinute(f.minute) ?? 0;
+    final live = liveEstimate(base, gh, ga, minute);
+    final steps = liveTimeline(base, events, gh, ga);
+    final scheme = Theme.of(context).colorScheme;
+
+    Widget chip(String label, double v) => Expanded(
+          child: Column(
+            children: [
+              Text(_p(v),
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.w900)),
+              Text(label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+            ],
+          ),
+        );
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Állás: $gh – $ga${f.minute == null ? '' : ' • ${f.minute}'}',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                chip('${f.homeLabel} nyer', live.home),
+                chip('Döntetlen', live.draw),
+                chip('${f.awayLabel} nyer', live.away),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Over 2,5: ${_p(live.over25)}  •  mindkét csapat szerez gólt: ${_p(live.bttsYes)}',
+              style: const TextStyle(fontSize: 12),
+            ),
+            Text(
+              'Hátralévő várható gólok: ${live.lambdaHome.toStringAsFixed(2)} – ${live.lambdaAway.toStringAsFixed(2)}',
+              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+            ),
+            if (steps.length >= 2) ...[
+              const Divider(height: 20),
+              const Text('Hogyan változott az esély',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              for (final st in steps)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    st.minute == 0 && st.home == 0 && st.away == 0
+                        ? "Kezdés: 1 ${_p(st.est.home)} • X ${_p(st.est.draw)} • 2 ${_p(st.est.away)}"
+                        : "${st.minute}' (${st.home}–${st.away}): 1 ${_p(st.est.home)} • X ${_p(st.est.draw)} • 2 ${_p(st.est.away)}",
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+            ],
+            const SizedBox(height: 8),
+            const Text(
+              'Az alapbecslés és az eltelt idő alapján számolva (nem veszi figyelembe a lapokat és a cseréket).',
+              style: TextStyle(fontSize: 10),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== MECCS-ELŐNÉZET ====================
+class _PreviewCard extends StatelessWidget {
+  final List<String> lines;
+  const _PreviewCard({required this.lines});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 6, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final l in lines)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6, right: 8),
+                child: Text('• $l', style: const TextStyle(fontSize: 13)),
+              ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                icon: const Icon(Icons.copy, size: 18),
+                label: const Text('Másolás'),
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: lines.join('\n')));
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context)
+                    ..hideCurrentSnackBar()
+                    ..showSnackBar(const SnackBar(
+                        content: Text('Az előnézet a vágólapra került.')));
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

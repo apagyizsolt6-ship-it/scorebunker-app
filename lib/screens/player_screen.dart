@@ -3,12 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/player_stats.dart';
 import '../providers.dart';
+import '../services/prefs_store.dart';
 import '../widgets/common.dart';
 
 /// Játékosoldal: szezon-összesítő és az utolsó meccsek a SportAPI adataiból.
 class PlayerScreen extends ConsumerWidget {
   final String name;
   final int teamId;
+  final String teamName;
   final int? shirt;
   final String position;
   final String nationality;
@@ -18,6 +20,7 @@ class PlayerScreen extends ConsumerWidget {
     super.key,
     required this.name,
     required this.teamId,
+    this.teamName = '',
     required this.shirt,
     required this.position,
     required this.nationality,
@@ -41,6 +44,14 @@ class PlayerScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final key = (name, teamId, shirt ?? 0);
     final stats = ref.watch(playerStatsProvider(key));
+    final me = FavPlayer(
+      name: name,
+      teamId: teamId,
+      teamName: teamName,
+      shirt: shirt,
+      position: position,
+    );
+    final isFav = ref.watch(favPlayersProvider).containsKey(me.key);
     final scheme = Theme.of(context).colorScheme;
 
     final info = [
@@ -54,6 +65,16 @@ class PlayerScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
         centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: isFav ? 'Eltávolítás a kedvencekből' : 'Kedvenc játékos',
+            icon: Icon(
+              isFav ? Icons.star : Icons.star_border,
+              color: isFav ? Colors.amber : null,
+            ),
+            onPressed: () => ref.read(favPlayersProvider.notifier).toggle(me),
+          ),
+        ],
       ),
       body: stats.when(
         loading: () => const Center(child: CircularProgressIndicator()),
