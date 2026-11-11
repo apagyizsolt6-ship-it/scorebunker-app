@@ -59,6 +59,10 @@ class AppSettings {
   final int quietStart;
   final int quietEnd;
 
+  /// Akcentszín (a `kAccents` listából) és valódi fekete (OLED) sötét téma.
+  final int accentIndex;
+  final bool oledBlack;
+
   const AppSettings({
     this.showLogos = false,
     this.themeMode = ThemeMode.system,
@@ -70,6 +74,8 @@ class AppSettings {
     this.quietEnabled = false,
     this.quietStart = 23,
     this.quietEnd = 7,
+    this.accentIndex = 0,
+    this.oledBlack = false,
   });
 
   AppSettings copyWith({
@@ -83,6 +89,8 @@ class AppSettings {
     bool? quietEnabled,
     int? quietStart,
     int? quietEnd,
+    int? accentIndex,
+    bool? oledBlack,
   }) =>
       AppSettings(
         showLogos: showLogos ?? this.showLogos,
@@ -95,6 +103,8 @@ class AppSettings {
         quietEnabled: quietEnabled ?? this.quietEnabled,
         quietStart: quietStart ?? this.quietStart,
         quietEnd: quietEnd ?? this.quietEnd,
+        accentIndex: accentIndex ?? this.accentIndex,
+        oledBlack: oledBlack ?? this.oledBlack,
       );
 }
 
@@ -119,6 +129,8 @@ class SettingsStore {
   static const _qOn = 'quiet_on';
   static const _qStart = 'quiet_start';
   static const _qEnd = 'quiet_end';
+  static const _accent = 'accent_idx';
+  static const _oled = 'oled_black';
 
   static Future<AppSettings> load() async {
     final p = await SharedPreferences.getInstance();
@@ -135,6 +147,8 @@ class SettingsStore {
       quietEnabled: p.getBool(_qOn) ?? false,
       quietStart: p.getInt(_qStart) ?? 23,
       quietEnd: p.getInt(_qEnd) ?? 7,
+      accentIndex: p.getInt(_accent) ?? 0,
+      oledBlack: p.getBool(_oled) ?? false,
     );
   }
 
@@ -150,6 +164,8 @@ class SettingsStore {
     await p.setBool(_qOn, s.quietEnabled);
     await p.setInt(_qStart, s.quietStart);
     await p.setInt(_qEnd, s.quietEnd);
+    await p.setInt(_accent, s.accentIndex);
+    await p.setBool(_oled, s.oledBlack);
   }
 }
 
@@ -255,5 +271,68 @@ class FollowedStore {
   static Future<void> save(Set<int> ids) async {
     final p = await SharedPreferences.getInstance();
     await p.setStringList(_k, [for (final i in ids) '$i']);
+  }
+}
+
+/// Kedvenc játékos.
+class FavPlayer {
+  final String name;
+  final int teamId;
+  final String teamName;
+  final int? shirt;
+  final String position;
+
+  const FavPlayer({
+    required this.name,
+    required this.teamId,
+    required this.teamName,
+    required this.shirt,
+    required this.position,
+  });
+
+  String get key => '$teamId|$name';
+
+  Map<String, dynamic> toJson() => {
+        'n': name,
+        't': teamId,
+        'tn': teamName,
+        's': shirt,
+        'p': position,
+      };
+
+  factory FavPlayer.fromJson(Map<String, dynamic> j) => FavPlayer(
+        name: (j['n'] ?? '').toString(),
+        teamId: (j['t'] as num?)?.toInt() ?? 0,
+        teamName: (j['tn'] ?? '').toString(),
+        shirt: (j['s'] as num?)?.toInt(),
+        position: (j['p'] ?? '').toString(),
+      );
+}
+
+class FavPlayersStore {
+  static const _k = 'fav_players_v1';
+
+  static Future<Map<String, FavPlayer>> load() async {
+    final p = await SharedPreferences.getInstance();
+    final s = p.getString(_k);
+    final out = <String, FavPlayer>{};
+    if (s == null || s.isEmpty) return out;
+    try {
+      final j = jsonDecode(s);
+      if (j is List) {
+        for (final x in j) {
+          if (x is Map) {
+            final f = FavPlayer.fromJson(Map<String, dynamic>.from(x));
+            if (f.name.isNotEmpty && f.teamId != 0) out[f.key] = f;
+          }
+        }
+      }
+    } catch (_) {}
+    return out;
+  }
+
+  static Future<void> save(Map<String, FavPlayer> m) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_k, jsonEncode([for (final f in m.values) f.toJson()]));
   }
 }

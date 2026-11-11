@@ -237,3 +237,104 @@ MatchEstimate? estimateMatch(
     usedH2h: usedH2h,
   );
 }
+
+// ==================== ÉLŐ ESÉLY ====================
+
+/// Az eltelt perc a kijelzett szövegből ("67'", "45+2'", "HT").
+int? parseMinute(String? m) {
+  if (m == null) return null;
+  final t = m.trim().toUpperCase();
+  if (t == 'HT') return 45;
+  final r = RegExp(r'(\d+)(?:\s*\+\s*(\d+))?').firstMatch(t);
+  if (r == null) return null;
+  final base = int.parse(r.group(1)!);
+  final extra = r.group(2) == null ? 0 : int.parse(r.group(2)!);
+  return base + extra;
+}
+
+/// Az alapbecslés újraszámolása élő állásra: a hátralévő időre eső
+/// várható gólokból és a jelenlegi állásból.
+MatchEstimate liveEstimate(MatchEstimate b, int gh, int ga, int minute) {
+  var rem = 90 - minute;
+  if (rem < 0) rem = 0;
+  if (rem > 90) rem = 90;
+  var r = rem / 90;
+  if (r < 0.03) r = 0.03; // hosszabbítás: marad egy kevés esély
+  final lh = b.lambdaHome * r;
+  final la = b.lambdaAway * r;
+
+  const maxGoals = 10;
+  var pHome = 0.0;
+  var pDraw = 0.0;
+  var pAway = 0.0;
+  var pOver = 0.0;
+  var pBtts = 0.0;
+  for (var i = 0; i <= maxGoals; i++) {
+    final pi0 = _poisson(i, lh);
+    for (var j = 0; j <= maxGoals; j++) {
+      final p = pi0 * _poisson(j, la);
+      final h = gh + i;
+      final a = ga + j;
+      if (h > a) {
+        pHome += p;
+      } else if (h == a) {
+        pDraw += p;
+      } else {
+        pAway += p;
+      }
+      if (h + a >= 3) pOver += p;
+      if (h > 0 && a > 0) pBtts += p;
+    }
+  }
+  final sum = pHome + pDraw + pAway;
+  if (sum <= 0) return b;
+  return MatchEstimate(
+    lambdaHome: lh,
+    lambdaAway: la,
+    home: pHome / sum,
+    draw: pDraw / sum,
+    away: pAway / sum,
+    over25: (pOver / sum).clamp(0.0, 1.0).toDouble(),
+    bttsYes: (pBtts / sum).clamp(0.0, 1.0).toDouble(),
+    usedH2h: b.usedH2h,
+  );
+}
+
+class LiveStep {
+  final int minute;
+  final int home;
+  final int away;
+  final MatchEstimate est;
+  const LiveStep(this.minute, this.home, this.away, this.est);
+}
+
+/// Az esély alakulása a gólok után. Üres lista, ha az események nem
+/// egyeznek a jelenlegi állással (pl. öngól miatt).
+List<LiveStep> liveTimeline(
+  MatchEstimate base,
+  List<FixtureEvent> events,
+  int curHome,
+  int curAway,
+) {
+  final goals = [
+    for (final e in events)
+      if (e.type.contains('goal')) e,
+  ]..sort((a, b) => a.sortKey.compareTo(b.sortKey));
+
+  var h = 0;
+  var a = 0;
+  final steps = <LiveStep>[LiveStep(0, 0, 0, liveEstimate(base, 0, 0, 0))];
+  for (final g in goals) {
+    if (g.side == 'home') {
+      h++;
+    } else if (g.side == 'away') {
+      a++;
+    } else {
+      continue;
+    }
+    final m = parseMinute(g.minute) ?? 0;
+    steps.add(LiveStep(m, h, a, liveEstimate(base, h, a, m)));
+  }
+  if (h != curHome || a != curAway) return const <LiveStep>[];
+  return steps;
+}

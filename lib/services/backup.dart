@@ -37,6 +37,9 @@ class BackupService {
     'quiet_start': 'i',
     'quiet_end': 'i',
     'league_rel_v1': 's',
+    'fav_players_v1': 's',
+    'accent_idx': 'i',
+    'oled_black': 'b',
   };
   static const String _apiKey = 'sportapi_key';
 
