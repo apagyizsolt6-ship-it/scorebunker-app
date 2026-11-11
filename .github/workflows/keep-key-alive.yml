@@ -1,0 +1,29 @@
+name: Keep signing key alive
+
+# A GitHub 7 nap használat nélkül törli a cache-t. Ez a kis feladat 3 naponta
+# megérinti az aláíró kulcs cache-ét, így a kulcs nem vész el, és az új
+# APK-k mindig a régi fölé települnek.
+on:
+  schedule:
+    - cron: '17 4 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Restore signing key (cache)
+        id: keycache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: scorebunker-signing-key-v1
+
+      - name: Report
+        run: |
+          if [ "${{ steps.keycache.outputs.cache-hit }}" = "true" ]; then
+            echo "Az aláíró kulcs cache-e megvan és frissítve lett."
+          else
+            echo "FIGYELEM: az aláíró kulcs cache-e nincs meg. A következő build új kulcsot készít."
+          fi
