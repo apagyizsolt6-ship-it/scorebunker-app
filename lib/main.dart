@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'models/fixture.dart';
 import 'models/live_score.dart';
@@ -15,6 +14,7 @@ import 'screens/splash_screen.dart';
 import 'screens/trends_page.dart';
 import 'services/alerts.dart';
 import 'services/prefs_store.dart';
+import 'theme.dart';
 import 'widgets/update_banner.dart';
 
 void main() {
@@ -26,23 +26,19 @@ class ScorebunkerApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final mode = ref.watch(settingsProvider.select((s) => s.themeMode));
+    final cfg = ref.watch(
+      settingsProvider.select((s) => (s.themeMode, s.accentIndex, s.oledBlack)),
+    );
     return MaterialApp(
       title: 'APISCORES',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        colorSchemeSeed: const Color(0xFF1A73E8),
-        textTheme: GoogleFonts.interTextTheme(),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
+      theme: buildTheme(brightness: Brightness.light, accentIndex: cfg.$2),
+      darkTheme: buildTheme(
         brightness: Brightness.dark,
-        colorSchemeSeed: const Color(0xFF1A73E8),
-        textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
+        accentIndex: cfg.$2,
+        oled: cfg.$3,
       ),
-      themeMode: mode,
+      themeMode: cfg.$1,
       home: const SplashGate(child: HomeScreen()),
     );
   }

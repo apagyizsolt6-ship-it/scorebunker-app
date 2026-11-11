@@ -127,6 +127,16 @@ class SettingsNotifier extends Notifier<AppSettings> {
     state = state.copyWith(quietStart: start, quietEnd: end);
     SettingsStore.save(state);
   }
+
+  void setAccent(int index) {
+    state = state.copyWith(accentIndex: index);
+    SettingsStore.save(state);
+  }
+
+  void setOled(bool v) {
+    state = state.copyWith(oledBlack: v);
+    SettingsStore.save(state);
+  }
 }
 
 final settingsProvider =
@@ -1042,3 +1052,34 @@ final updateProvider = FutureProvider<UpdateInfo?>((ref) => checkForUpdate());
 
 /// Az a build-szám, amelynek a jelzését a felhasználó elnyomta.
 final updateDismissedProvider = StateProvider<int>((ref) => 0);
+
+// ==================== KEDVENC JÁTÉKOSOK ====================
+class FavPlayersNotifier extends Notifier<Map<String, FavPlayer>> {
+  @override
+  Map<String, FavPlayer> build() {
+    _load();
+    return const <String, FavPlayer>{};
+  }
+
+  Future<void> _load() async {
+    final m = await FavPlayersStore.load();
+    if (m.isNotEmpty) state = m;
+  }
+
+  void toggle(FavPlayer p) {
+    final next = <String, FavPlayer>{...state};
+    if (next.remove(p.key) == null) next[p.key] = p;
+    state = next;
+    FavPlayersStore.save(next);
+  }
+
+  void remove(String key) {
+    final next = <String, FavPlayer>{...state}..remove(key);
+    state = next;
+    FavPlayersStore.save(next);
+  }
+}
+
+final favPlayersProvider =
+    NotifierProvider<FavPlayersNotifier, Map<String, FavPlayer>>(
+        FavPlayersNotifier.new);
