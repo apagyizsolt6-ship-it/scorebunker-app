@@ -28,10 +28,12 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # Állandó aláíró kulcs: így az új APK a régi fölé települ (nem kell törölni az appot).
-      # A kulcsot a GitHub cache őrzi; ha 7 napig nem fut build, törölhetik.
+      # ---------- Állandó aláíró kulcs ----------
+      # Az APK-t ugyanaz a kulcs írja alá minden buildnél, így az új verzió a
+      # régi fölé települ. A kulcsot a GitHub cache őrzi (a kulcs neve ne változzon!).
       - name: Restore signing key (cache)
-        uses: actions/cache@v4
+        id: keycache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.android/debug.keystore
           key: scorebunker-signing-key-v1
@@ -46,9 +48,36 @@ jobs:
             echo "$KS_B64" | base64 -d > ~/.android/debug.keystore
             echo "Signing key restored from secret"
           else
-            echo "No secret set, using cached or newly generated key"
+            echo "No secret set"
           fi
 
+      # Ha nincs kulcs (első build vagy törölt cache), itt készül egy új, még a build ELŐTT.
+      - name: Ensure signing key exists
+        id: genkey
+        run: |
+          mkdir -p ~/.android
+          if [ -f ~/.android/debug.keystore ]; then
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+            echo "Signing key found"
+          else
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            echo "generated=true" >> "$GITHUB_OUTPUT"
+            echo "NEW signing key generated"
+          fi
+
+      # Az új kulcsot azonnal mentjük (nem a build végén), így egy elbukó build sem veszíti el.
+      - name: Save signing key (cache)
+        if: steps.genkey.outputs.generated == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: scorebunker-signing-key-v1
+
+      # ---------- Build ----------
       - name: Create Flutter project structure
         run: |
           flutter create . --project-name scorebunker_app --org com.scorebunker
@@ -71,6 +100,27 @@ jobs:
       - name: Build APK
         run: flutter build apk --release --build-number=${{ github.run_number }} --dart-define=BUILD_NUMBER=${{ github.run_number }}
 
+      # ---------- Aláírás ellenőrzése ----------
+      # A tanúsítvány ujjlenyomata nyilvános adat: ha két build ujjlenyomata
+      # különbözik, a két APK nem települ egymás fölé.
+      - name: Signing fingerprint
+        id: sig
+        run: |
+          SHA=$(keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android 2>/dev/null | grep -m1 "SHA256:" | sed 's/.*SHA256: *//')
+          if [ -z "$SHA" ]; then SHA="ismeretlen"; fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          if [ "${{ steps.genkey.outputs.generated }}" = "true" ]; then
+            NOTE="FIGYELEM: ehhez a builden új aláíró kulcs készült, ezért nem települ a régebbi verzió fölé (egyszer törölni kell a régi appot)."
+          else
+            NOTE="Az aláírás ugyanaz, mint a korábbi buildeknél."
+          fi
+          echo "note=$NOTE" >> "$GITHUB_OUTPUT"
+          echo "### Aláírás" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA-256: \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "$NOTE" >> "$GITHUB_STEP_SUMMARY"
+          echo "Signing SHA-256: $SHA"
+          echo "$NOTE"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -91,5 +141,8 @@ jobs:
           body: |
             Automatikus build (commit ${{ github.sha }}).
             Telepítés: töltsd le az APK-t a telefonra, és nyisd meg.
+
+            Aláírás (SHA-256): ${{ steps.sig.outputs.sha }}
+            ${{ steps.sig.outputs.note }}
           files: APISCORES-build-${{ github.run_number }}.apk
           make_latest: true
