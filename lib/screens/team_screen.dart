@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/league_catalog.dart';
 import '../models/fixture.dart';
+import '../models/leaders.dart';
 import '../models/team.dart';
 import '../providers.dart';
 import '../widgets/common.dart';
+import '../widgets/form_spark.dart';
 import 'match_detail_screen.dart';
 import 'player_screen.dart';
 
@@ -185,6 +187,11 @@ class _OverviewTab extends ConsumerWidget {
                     ],
                   ),
                 ),
+              ),
+              _SeasonCard(
+                teamId: teamId,
+                leagueId: _mainLeague(t),
+                leagueName: _mainLeagueName(t),
               ),
               if (upcoming.isNotEmpty) ...[
                 _section(context, 'Következő meccsek'),
@@ -371,6 +378,159 @@ class _TrophiesTab extends ConsumerWidget {
           ],
         );
       },
+    );
+  }
+}
+
+// ==================== SZEZON-KÁRTYA ====================
+/// A csapat fő bajnoksága: ahol a legtöbb meccse szerepel a listában.
+int _mainLeague(TeamInfo t) {
+  final c = <int, int>{};
+  for (final m in t.matches) {
+    if (m.leagueId != 0) c[m.leagueId] = (c[m.leagueId] ?? 0) + 1;
+  }
+  var best = 0;
+  var bestN = 0;
+  c.forEach((k, v) {
+    if (v > bestN) {
+      best = k;
+      bestN = v;
+    }
+  });
+  return best;
+}
+
+String _mainLeagueName(TeamInfo t) {
+  final id = _mainLeague(t);
+  for (final m in t.matches) {
+    if (m.leagueId == id) return m.leagueName;
+  }
+  return '';
+}
+
+class _SeasonCard extends ConsumerWidget {
+  final int teamId;
+  final int leagueId;
+  final String leagueName;
+  const _SeasonCard({
+    required this.teamId,
+    required this.leagueId,
+    required this.leagueName,
+  });
+
+  Widget _tile(String label, String value) => Expanded(
+        child: Column(
+          children: [
+            Text(value,
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            Text(label, style: const TextStyle(fontSize: 10)),
+          ],
+        ),
+      );
+
+  String _wdl(List<dynamic> l) {
+    var w = 0, d = 0, x = 0;
+    for (final m in l) {
+      if (m.result == 'W') {
+        w++;
+      } else if (m.result == 'D') {
+        d++;
+      } else {
+        x++;
+      }
+    }
+    return '$w-$d-$x';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (leagueId == 0) return const SizedBox.shrink();
+    final row = ref.watch(standingsProvider(leagueId)).valueOrNull?.rowOf(teamId);
+    if (row == null) return const SizedBox.shrink();
+
+    final scorers =
+        ref.watch(leadersProvider((leagueId, LeaderKind.scorers))).valueOrNull ??
+            const [];
+    final assists =
+        ref.watch(leadersProvider((leagueId, LeaderKind.assists))).valueOrNull ??
+            const [];
+    final mine = [for (final r in scorers) if (r.teamId == teamId) r];
+    final mineA = [for (final r in assists) if (r.teamId == teamId) r];
+
+    final scored = row.form.where((m) => m.hasScore).toList();
+    final home = scored.where((m) => m.isHome).toList();
+    final away = scored.where((m) => !m.isHome).toList();
+    final p = row.played == 0 ? 1 : row.played;
+    final scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _section(context, 'Szezon • ${leagueHu(leagueName)}'),
+        Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    _tile('Helyezés', '${row.position}.'),
+                    _tile('Pont', '${row.points}'),
+                    _tile('Gy-D-V', '${row.won}-${row.draw}-${row.lost}'),
+                    _tile('Gólkülönbség',
+                        '${row.goalDiff >= 0 ? '+' : ''}${row.goalDiff}'),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Lőtt gól / meccs: ${(row.goalsFor / p).toStringAsFixed(2)}  •  '
+                  'Kapott gól / meccs: ${(row.goalsAgainst / p).toStringAsFixed(2)}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                if (home.length >= 2 || away.length >= 2)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Utolsó meccsek – hazai: ${home.isEmpty ? '–' : _wdl(home)}'
+                      '  •  idegenben: ${away.isEmpty ? '–' : _wdl(away)}  (Gy-D-V)',
+                      style: TextStyle(
+                          fontSize: 12, color: scheme.onSurfaceVariant),
+                    ),
+                  ),
+                if (scored.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  FormSpark(form: row.form),
+                  const Text(
+                    'Oszlopok: gólkülönbség az utolsó meccseken (régebbi → újabb)',
+                    style: TextStyle(fontSize: 10),
+                  ),
+                ],
+                if (mine.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Text('Góllövők a bajnokságban',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                  for (final r in mine.take(3))
+                    Text('${r.rank}. ${r.player} – ${r.value} gól',
+                        style: const TextStyle(fontSize: 12)),
+                ],
+                if (mineA.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const Text('Gólpassz-adók a bajnokságban',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                  for (final r in mineA.take(3))
+                    Text('${r.rank}. ${r.player} – ${r.value} gólpassz',
+                        style: const TextStyle(fontSize: 12)),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

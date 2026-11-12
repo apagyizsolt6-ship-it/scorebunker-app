@@ -10,6 +10,7 @@ import '../widgets/common.dart';
 import 'leagues_screen.dart';
 import 'match_detail_screen.dart';
 import 'standings_screen.dart';
+import 'team_search_screen.dart';
 
 // ==================== CSOPORTOSÍTÁS (kedvencek + top bajnokságok + országok) ====================
 const String _otherLabel = 'Nemzetközi / egyéb';
@@ -208,6 +209,14 @@ class MatchesPage extends ConsumerWidget {
         centerTitle: true,
         actions: [
           const _LiveDot(),
+          IconButton(
+            tooltip: 'Csapatkereső',
+            icon: const Icon(Icons.manage_search),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const TeamSearchScreen()),
+            ),
+          ),
           IconButton(
             tooltip: 'Bajnokság-szűrő',
             icon: const Icon(Icons.tune),

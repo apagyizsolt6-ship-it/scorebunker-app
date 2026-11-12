@@ -102,6 +102,7 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
     // Becsült együttes esély (a meccseket függetlennek tekintve).
     var combined = 1.0;
     var haveAllEstimates = draft.isNotEmpty;
+    final deltas = <double>[]; // becsült esély – odds szerinti esély
     for (final l in draft.values) {
       final est = ref
           .watch(estimateProvider(
@@ -111,8 +112,14 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
         haveAllEstimates = false;
       } else {
         combined *= est.prob(l.pick);
+        final o = l.odds;
+        if (o != null && o > 1.0) deltas.add(est.prob(l.pick) - 1 / o);
       }
     }
+    final haveDeltas = deltas.isNotEmpty && deltas.length == n;
+    final avgDelta =
+        haveDeltas ? deltas.reduce((a, b) => a + b) / deltas.length : 0.0;
+    final aboveOdds = deltas.where((d) => d > 0).length;
     final comboEv = (haveAllEstimates && allOdds)
         ? expectedValue(combined, total)
         : null;
@@ -266,6 +273,14 @@ class _SlipDraftScreenState extends ConsumerState<SlipDraftScreen> {
                               'Becsült várható érték',
                               '${comboEv >= 0 ? '+' : ''}${(comboEv * 100).toStringAsFixed(0)}%',
                             ),
+                        ],
+                        if (haveDeltas) ...[
+                          _SumRow(
+                            'Átlagos eltérés (becslés – odds)',
+                            '${avgDelta >= 0 ? '+' : ''}${(avgDelta * 100).toStringAsFixed(1)} százalékpont',
+                          ),
+                          _SumRow('Becslés az odds szerinti esély felett',
+                              '$aboveOdds / $n tipp'),
                         ],
                         const Divider(),
                         if (isSystem) ...[
