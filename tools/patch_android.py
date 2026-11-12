@@ -20,6 +20,7 @@ for perm in (
     'android.permission.INTERNET',
     'android.permission.POST_NOTIFICATIONS',
     'android.permission.VIBRATE',
+    'android.permission.REQUEST_INSTALL_PACKAGES',
 ):
     if perm not in text:
         tag = f'<uses-permission android:name="{perm}"/>'
