@@ -38,18 +38,37 @@ jobs:
           path: ~/.android/debug.keystore
           key: scorebunker-signing-key-v1
 
-      # Opcionális, véglegesebb megoldás: a kulcs base64-ben a DEBUG_KEYSTORE_B64 secretben.
-      - name: Signing key from secret (optional)
+      # A legmegbízhatóbb forrás: a repóba mentett TITKOS KULCS (tools/signing/debug.keystore.enc,
+      # titkosítva), amit a SIGNING_PASSPHRASE secret old fel. Ez felülírja a cache-t,
+      # így minden build ugyanazzal a kulccsal íródik alá, a cache-től függetlenül.
+      # Másodlagos lehetőség: a kulcs base64-ben a DEBUG_KEYSTORE_B64 secretben.
+      - name: Signing key from repo / secret
+        id: keysrc
         env:
+          SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
           KS_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
         run: |
-          if [ -n "$KS_B64" ]; then
-            mkdir -p ~/.android
+          mkdir -p ~/.android
+          SRC="cache-or-new"
+          if [ -n "$SIGNING_PASSPHRASE" ] && [ -f tools/signing/debug.keystore.enc ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 \
+              -in tools/signing/debug.keystore.enc \
+              -out ~/.android/debug.keystore \
+              -pass env:SIGNING_PASSPHRASE
+            if ! keytool -list -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android > /dev/null 2>&1; then
+              echo "HIBA: a kulcs nem olvasható. Biztosan jó a SIGNING_PASSPHRASE secret?"
+              exit 1
+            fi
+            SRC="repo-encrypted"
+            echo "Signing key restored from the encrypted repo file"
+          elif [ -n "$KS_B64" ]; then
             echo "$KS_B64" | base64 -d > ~/.android/debug.keystore
+            SRC="secret-b64"
             echo "Signing key restored from secret"
           else
-            echo "No secret set"
+            echo "No SIGNING_PASSPHRASE / DEBUG_KEYSTORE_B64 secret set: using cache or a new key"
           fi
+          echo "src=$SRC" >> "$GITHUB_OUTPUT"
 
       # Ha nincs kulcs (első build vagy törölt cache), itt készül egy új, még a build ELŐTT.
       - name: Ensure signing key exists
@@ -109,7 +128,10 @@ jobs:
           SHA=$(keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android 2>/dev/null | grep -m1 "SHA256:" | sed 's/.*SHA256: *//')
           if [ -z "$SHA" ]; then SHA="ismeretlen"; fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          if [ "${{ steps.genkey.outputs.generated }}" = "true" ]; then
+          SRC="${{ steps.keysrc.outputs.src }}"
+          if [ "$SRC" = "repo-encrypted" ] || [ "$SRC" = "secret-b64" ]; then
+            NOTE="Az aláírás a rögzített kulcsból jön ($SRC), minden build ugyanazzal íródik alá."
+          elif [ "${{ steps.genkey.outputs.generated }}" = "true" ]; then
             NOTE="FIGYELEM: ehhez a builden új aláíró kulcs készült, ezért nem települ a régebbi verzió fölé (egyszer törölni kell a régi appot)."
           else
             NOTE="Az aláírás ugyanaz, mint a korábbi buildeknél."
