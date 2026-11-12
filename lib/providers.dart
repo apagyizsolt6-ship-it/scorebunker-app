@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:math' as math;
 
@@ -29,6 +30,7 @@ import 'services/live_socket.dart';
 import 'services/alerts.dart';
 import 'services/prefs_store.dart';
 import 'services/season_sim.dart';
+import 'services/team_index.dart';
 import 'services/slip_store.dart';
 import 'services/sport_api.dart';
 import 'services/trend_engine.dart';
@@ -237,7 +239,15 @@ final favOnlyProvider = StateProvider<bool>((ref) => false);
 final fixturesProvider = FutureProvider<List<Fixture>>((ref) async {
   final api = ref.watch(apiProvider);
   if (api == null) return [];
-  return api.fixturesByDate(ref.watch(selectedDateProvider));
+  final date = ref.watch(selectedDateProvider);
+  final list = await api.fixturesByDate(date);
+  // A látott csapatok bekerülnek a csapatkeresőbe.
+  Future.microtask(() {
+    try {
+      ref.read(teamIndexProvider.notifier).add(list);
+    } catch (_) {}
+  });
+  return list;
 });
 
 /// A nyers lista + a WebSocketen érkezett friss állások.
@@ -995,6 +1005,7 @@ class EloNotifier extends Notifier<EloState> {
           final list =
               await api.fixturesByDate(cur, ttl: const Duration(days: 14));
           s = applyEloResults(s, list, _key(cur));
+          ref.read(teamIndexProvider.notifier).add(list);
           processed++;
         } on ApiException catch (e) {
           if (e.status == 429 || e.status == 401) break;
@@ -1083,3 +1094,49 @@ class FavPlayersNotifier extends Notifier<Map<String, FavPlayer>> {
 final favPlayersProvider =
     NotifierProvider<FavPlayersNotifier, Map<String, FavPlayer>>(
         FavPlayersNotifier.new);
+
+// ==================== CSAPATKERESŐ (HELYI INDEX) ====================
+class TeamIndexNotifier extends Notifier<Map<int, TeamEntry>> {
+  Timer? _saveTimer;
+
+  @override
+  Map<int, TeamEntry> build() {
+    ref.onDispose(() => _saveTimer?.cancel());
+    _load();
+    return const <int, TeamEntry>{};
+  }
+
+  Future<void> _load() async {
+    final m = await TeamIndexStore.load();
+    if (m.isNotEmpty) state = <int, TeamEntry>{...m, ...state};
+  }
+
+  /// A meccslistában látott csapatok hozzáadása (a bajnokság a legelső látott).
+  void add(List<Fixture> list) {
+    Map<int, TeamEntry>? next;
+    void put(int id, String name, String league) {
+      if (id == 0 || name.isEmpty) return;
+      final cur = (next ?? state)[id];
+      if (cur == null || cur.name != name || (cur.league.isEmpty && league.isNotEmpty)) {
+        next ??= <int, TeamEntry>{...state};
+        next![id] = TeamEntry(id, name, cur != null && cur.league.isNotEmpty ? cur.league : league);
+      }
+    }
+
+    for (final f in list) {
+      put(f.homeId, f.homeTeam, f.leagueName);
+      put(f.awayId, f.awayTeam, f.leagueName);
+    }
+    final n = next;
+    if (n == null) return;
+    state = n;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(seconds: 5), () {
+      TeamIndexStore.save(state);
+    });
+  }
+}
+
+final teamIndexProvider =
+    NotifierProvider<TeamIndexNotifier, Map<int, TeamEntry>>(
+        TeamIndexNotifier.new);
