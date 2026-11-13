@@ -3,6 +3,7 @@
  - engedélyek (internet, értesítések, rezgés)
  - az app neve: APISCORES
  - kék háttér az indításkor (a Flutter animált indítóképernyője előtt)
+ - a plugin-modulok lint-vital feladatának kikapcsolása (lint-összeomlás ellen)
  - core library desugaring (a flutter_local_notifications miatt kell)
 Többször lefuttatva sem csinál duplikációt.
 """
@@ -39,6 +40,47 @@ for d in ('drawable', 'drawable-v21'):
         if t2 != t:
             lb.write_text(t2, encoding='utf-8')
             print('launch background ok:', lb)
+
+# ---------- lint-vital kikapcsolása (a plugin-modulok lint-összeomlása miatt) ----------
+# A `lintVitalAnalyzeRelease` feladat egyes pluginoknál (pl. url_launcher_android)
+# összeomlik a JDK 17 + az Android lint verzió eltérése miatt
+# (NoSuchMethodError: List.removeLast). A feladat csak statikus ellenőrzés,
+# az APK tartalmát nem érinti, ezért kikapcsoljuk.
+LINT_MARK = 'apiscores-lint-fix'
+for name in ('build.gradle.kts', 'build.gradle'):
+    rootg = pathlib.Path('android') / name
+    if not rootg.exists():
+        continue
+    rt = rootg.read_text(encoding='utf-8')
+    if LINT_MARK in rt:
+        print('root gradle: lint-fix már be van állítva')
+    elif name.endswith('.kts'):
+        rt += (
+            '\n// ' + LINT_MARK + '\n'
+            'subprojects {\n'
+            '    tasks.configureEach {\n'
+            '        if (name.startsWith("lintVital")) {\n'
+            '            enabled = false\n'
+            '        }\n'
+            '    }\n'
+            '}\n'
+        )
+        rootg.write_text(rt, encoding='utf-8')
+        print('root gradle lint-fix ok:', rootg)
+    else:
+        rt += (
+            '\n// ' + LINT_MARK + '\n'
+            'subprojects {\n'
+            '    tasks.configureEach { t ->\n'
+            "        if (t.name.startsWith('lintVital')) {\n"
+            '            t.enabled = false\n'
+            '        }\n'
+            '    }\n'
+            '}\n'
+        )
+        rootg.write_text(rt, encoding='utf-8')
+        print('root gradle lint-fix ok:', rootg)
+    break
 
 # ---------- build.gradle(.kts) ----------
 gradle = None
