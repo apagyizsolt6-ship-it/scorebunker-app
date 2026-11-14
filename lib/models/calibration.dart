@@ -131,5 +131,6 @@ MatchEstimate calibrateEstimate(MatchEstimate e, Calibration c) {
     over25: over,
     bttsYes: btts,
     usedH2h: e.usedH2h,
+    adjusted: e.adjusted,
   );
 }

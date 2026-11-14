@@ -101,6 +101,29 @@ class Tally {
   double get avgP => n == 0 ? 0 : sumP / n;
 }
 
+/// Egy nap találati aránya a modell három fő tippjén (1X2, gólok, BTTS).
+class DayStat {
+  final String date;
+  final int matches;
+  final int hits;
+  const DayStat(this.date, this.matches, this.hits);
+  double get rate => matches == 0 ? 0 : hits / (matches * 3);
+}
+
+/// A három fő tipp találatainak száma egy meccsen (0–3).
+int marketHits(EstimateLogEntry e, int h, int a) {
+  final top = e.home >= e.draw && e.home >= e.away
+      ? 0
+      : (e.draw >= e.away ? 1 : 2);
+  final actual = h > a ? 0 : (h == a ? 1 : 2);
+  var count = top == actual ? 1 : 0;
+  final over = e.over25 >= 0.5;
+  if (over ? h + a >= 3 : h + a <= 2) count++;
+  final yes = e.btts >= 0.5;
+  if (yes ? (h > 0 && a > 0) : (h == 0 || a == 0)) count++;
+  return count;
+}
+
 class BacktestReport {
   final Map<TrendKind, Tally> trends;
   final Tally top1x2;
@@ -111,7 +134,11 @@ class BacktestReport {
   final int pending;
   final int loggedMatches;
 
+  /// Naponkénti találati arány (dátum szerint rendezve).
+  final List<DayStat> daily;
+
   const BacktestReport({
+    this.daily = const [],
     required this.trends,
     required this.top1x2,
     required this.over,
@@ -147,6 +174,8 @@ BacktestReport buildReport(BacktestLog log, Map<int, Fixture> fx) {
   final under = Tally();
   final bYes = Tally();
   final bNo = Tally();
+  final dayMatches = <String, int>{};
+  final dayHits = <String, int>{};
   for (final e in log.estimates) {
     final f = fx[e.fixtureId];
     if (f == null || !f.isFinished || !f.hasScore) {
@@ -155,6 +184,11 @@ BacktestReport buildReport(BacktestLog log, Map<int, Fixture> fx) {
     }
     final h = f.homeScore!;
     final a = f.awayScore!;
+
+    if (f.date.isNotEmpty) {
+      dayMatches[f.date] = (dayMatches[f.date] ?? 0) + 1;
+      dayHits[f.date] = (dayHits[f.date] ?? 0) + marketHits(e, h, a);
+    }
 
     // 1X2: a legvalószínűbb kimenetel
     var best = e.home;
@@ -190,7 +224,13 @@ BacktestReport buildReport(BacktestLog log, Map<int, Fixture> fx) {
     for (final e in log.estimates) e.fixtureId,
   };
 
+  final days = [
+    for (final d in dayMatches.keys)
+      DayStat(d, dayMatches[d]!, dayHits[d] ?? 0),
+  ]..sort((x, y) => x.date.compareTo(y.date));
+
   return BacktestReport(
+    daily: days,
     trends: trends,
     top1x2: top,
     over: over,
