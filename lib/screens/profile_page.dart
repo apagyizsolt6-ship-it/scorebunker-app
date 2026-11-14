@@ -291,6 +291,44 @@ class ProfilePage extends ConsumerWidget {
             },
           ),
           SwitchListTile(
+            secondary: const Icon(Icons.wb_sunny_outlined),
+            title: const Text('Reggeli összefoglaló'),
+            subtitle: Text(settings.morningEnabled
+                ? 'Minden nap ${settings.morningHour.toString().padLeft(2, '0')}:00-kor: '
+                    'kedvenceid meccsei és a legerősebb esélyek'
+                : 'Kikapcsolva'),
+            value: settings.morningEnabled,
+            onChanged: (v) async {
+              if (v) await Alerts.requestPermission();
+              ref.read(settingsProvider.notifier).setMorningEnabled(v);
+            },
+          ),
+          if (settings.morningEnabled)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  const Text('Időpont'),
+                  const SizedBox(width: 12),
+                  DropdownButton<int>(
+                    value: settings.morningHour,
+                    items: [
+                      for (var h = 5; h <= 12; h++)
+                        DropdownMenuItem(
+                          value: h,
+                          child: Text('${h.toString().padLeft(2, '0')}:00'),
+                        ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) {
+                        ref.read(settingsProvider.notifier).setMorningHour(v);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          SwitchListTile(
             secondary: const Icon(Icons.bedtime_outlined),
             title: const Text('Csendes órák'),
             subtitle: Text(settings.quietEnabled
@@ -463,7 +501,7 @@ class ProfilePage extends ConsumerWidget {
             onTap: () => showAboutDialog(
               context: context,
               applicationName: 'APISCORES',
-              applicationVersion: '1.9.0',
+              applicationVersion: '1.11.0',
               children: const [
                 SizedBox(height: 8),
                 Text(

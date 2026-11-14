@@ -6,6 +6,7 @@ import '../models/calibration.dart';
 import '../models/trend.dart';
 import '../providers.dart';
 import '../services/backtest_store.dart';
+import '../widgets/charts.dart';
 import '../widgets/common.dart';
 
 /// Visszamérés: a naplózott trendekből és becslésekből hány jött be.
@@ -155,6 +156,21 @@ class BacktestScreen extends ConsumerWidget {
             ),
           ),
         ]),
+        if (r.daily.isNotEmpty)
+          _card('Napi találati arány', [
+            const SizedBox(height: 6),
+            DailyBars(days: r.daily.length > 21 ? r.daily.sublist(r.daily.length - 21) : r.daily),
+            const SizedBox(height: 6),
+            Text(
+              'A modell három fő tippjének (a legvalószínűbb kimenetel, Over/Under 2,5, '
+              'mindkét csapat szerez gólt) napi találati aránya. Az m a kiértékelt meccsek száma.',
+              style: TextStyle(
+                fontSize: 11,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ]),
+        _card('Kalibrációs görbe', const [_CalibrationChartCard()]),
         _card('Trendek (szelvényre tehető fajták)', [
           for (final e in _trendLabels.entries)
             _row(context, e.value, r.trends[e.key] ?? Tally()),
@@ -206,6 +222,62 @@ class BacktestScreen extends ConsumerWidget {
               ref.invalidate(backtestReportProvider);
             }
           },
+        ),
+      ],
+    );
+  }
+}
+
+/// Kalibrációs görbe csoportválasztóval (kimenetel / gólok / BTTS).
+class _CalibrationChartCard extends ConsumerStatefulWidget {
+  const _CalibrationChartCard();
+
+  @override
+  ConsumerState<_CalibrationChartCard> createState() =>
+      _CalibrationChartCardState();
+}
+
+class _CalibrationChartCardState extends ConsumerState<_CalibrationChartCard> {
+  int _g = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final calib = ref.watch(calibrationProvider);
+    final points = <(double, double, int)>[];
+    for (var b = 0; b < Calibration.bins; b++) {
+      final n = calib.n[_g][b];
+      if (n < 5) continue;
+      points.add(((b + 0.5) / Calibration.bins, calib.hits[_g][b] / n, n));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 6),
+        SegmentedButton<int>(
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment(value: 0, label: Text('Kimenetel')),
+            ButtonSegment(value: 1, label: Text('Gólok')),
+            ButtonSegment(value: 2, label: Text('BTTS')),
+          ],
+          selected: {_g},
+          onSelectionChanged: (s) => setState(() => _g = s.first),
+        ),
+        const SizedBox(height: 10),
+        if (points.length < 2)
+          const Text('Még kevés az adat a görbéhez.',
+              style: TextStyle(fontSize: 12))
+        else
+          CalibrationCurve(points: points),
+        const SizedBox(height: 6),
+        Text(
+          'Vízszintes tengely: becsült esély (%), függőleges: valós gyakoriság (%). '
+          'Ha a vonal az átló (szürke) alatt fut, a modell túlbecsül, felette alulbecsül. '
+          'A pont mérete a minták számát mutatja (legalább 5 minta).',
+          style: TextStyle(
+            fontSize: 11,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       ],
     );

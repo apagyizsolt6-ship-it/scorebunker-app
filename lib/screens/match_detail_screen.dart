@@ -15,10 +15,12 @@ import '../providers.dart';
 import '../services/estimator.dart';
 import '../services/preview.dart';
 import '../services/sport_api.dart';
+import '../widgets/charts.dart';
 import '../widgets/common.dart';
 import '../widgets/form_spark.dart';
 import '../widgets/reminder_button.dart';
 import 'compare_screen.dart';
+import 'h2h_screen.dart';
 import 'standings_screen.dart';
 import 'team_screen.dart';
 
@@ -96,6 +98,7 @@ class MatchDetailScreen extends ConsumerWidget {
     final favs = ref.watch(favoritesProvider);
     final calib = ref.watch(calibrationProvider);
     final elo = ref.watch(eloProvider);
+    final adjust = ref.watch(teamAdjustProvider);
     final following = ref.watch(followedProvider).contains(f.id);
     final d = detail.valueOrNull;
 
@@ -322,7 +325,7 @@ class MatchDetailScreen extends ConsumerWidget {
                 final rawEst = f.isFinished
                     ? null
                     : estimateMatch(t, f.homeId, f.awayId,
-                        h2h: h2h.valueOrNull, elo: elo);
+                        h2h: h2h.valueOrNull, elo: elo, adjust: adjust);
                 final est =
                     rawEst == null ? null : calibrateEstimate(rawEst, calib);
                 return Column(
@@ -459,7 +462,18 @@ class MatchDetailScreen extends ConsumerWidget {
                 ],
               );
             }),
-            const SizedBox(height: 16),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                icon: const Icon(Icons.history, size: 18),
+                label: const Text('Részletek'),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => H2HScreen(fixture: f)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
 
             // Összeállítás (csak megnyitáskor tölt)
             _LineupsSection(fixtureId: f.id, home: f.homeLabel, away: f.awayLabel),
@@ -998,6 +1012,14 @@ class _EstimateCard extends StatelessWidget {
             const Divider(height: 16),
             _row(context, 'Mindkét csapat lő', est.bttsYes),
             _row(context, 'Nem lő mindkettő', est.bttsNo),
+            if (est.adjusted)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  '⚙ A számolásban kézi csapat-korrekció is szerepel (csapatoldal → Korrekció).',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                ),
+              ),
             const SizedBox(height: 8),
             const Text(
               'Zárójelben a fair odds (jutalék nélkül). Egyszerű becslés a '
@@ -1123,6 +1145,12 @@ class _LiveProbCard extends StatelessWidget {
             Text(
               'Hátralévő várható gólok: ${live.lambdaHome.toStringAsFixed(2)} – ${live.lambdaAway.toStringAsFixed(2)}',
               style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            ProbChart(
+              series: liveSeries(base, events, gh, ga, minute),
+              homeLabel: f.homeLabel,
+              awayLabel: f.awayLabel,
             ),
             if (steps.length >= 2) ...[
               const Divider(height: 20),

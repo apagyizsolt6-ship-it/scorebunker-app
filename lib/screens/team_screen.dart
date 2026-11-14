@@ -6,6 +6,7 @@ import '../models/fixture.dart';
 import '../models/leaders.dart';
 import '../models/team.dart';
 import '../providers.dart';
+import '../widgets/adjust_sheet.dart';
 import '../widgets/common.dart';
 import '../widgets/form_spark.dart';
 import 'match_detail_screen.dart';
@@ -21,6 +22,7 @@ class TeamScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isFav = ref.watch(favoritesProvider).containsKey(teamId);
+    final adj = ref.watch(teamAdjustProvider)[teamId];
     return DefaultTabController(
       length: 3,
       child: Scaffold(
@@ -28,6 +30,16 @@ class TeamScreen extends ConsumerWidget {
           title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
           centerTitle: true,
           actions: [
+            IconButton(
+              tooltip: adj == null
+                  ? 'Kézi korrekció (hiányzó játékos, forma)'
+                  : 'Korrekció aktív: támadás ${adj.attackPct}%, védekezés ${adj.defencePct}%',
+              icon: Icon(
+                Icons.tune,
+                color: adj == null ? null : Colors.deepOrange,
+              ),
+              onPressed: () => showAdjustSheet(context, teamId, name),
+            ),
             IconButton(
               tooltip: isFav ? 'Eltávolítás a kedvencekből' : 'Kedvencnek jelölöm',
               icon: Icon(
