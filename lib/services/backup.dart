@@ -40,6 +40,9 @@ class BackupService {
     'fav_players_v1': 's',
     'accent_idx': 'i',
     'oled_black': 'b',
+    'morning_on': 'b',
+    'morning_hour': 'i',
+    'team_adjust_v1': 's',
   };
   static const String _apiKey = 'sportapi_key';
 

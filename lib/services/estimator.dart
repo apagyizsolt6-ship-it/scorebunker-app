@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import '../models/fixture.dart';
 import '../models/slip.dart';
 import '../models/standing.dart';
+import '../models/team_adjust.dart';
 import 'elo.dart';
 
 /// Poisson-eloszláson alapuló esély-becslés a tabella adataiból.
@@ -25,6 +26,9 @@ class MatchEstimate {
   final double bttsYes;
   final bool usedH2h;
 
+  /// Igaz, ha a számolásban kézi csapat-korrekció is szerepel.
+  final bool adjusted;
+
   const MatchEstimate({
     required this.lambdaHome,
     required this.lambdaAway,
@@ -34,6 +38,7 @@ class MatchEstimate {
     required this.over25,
     required this.bttsYes,
     this.usedH2h = false,
+    this.adjusted = false,
   });
 
   double get under25 => 1 - over25;
@@ -113,6 +118,7 @@ MatchEstimate? estimateMatch(
   int awayId, {
   List<Fixture>? h2h,
   EloState? elo,
+  Map<int, TeamAdjust>? adjust,
 }) {
   final h = table.rowOf(homeId);
   final a = table.rowOf(awayId);
@@ -164,6 +170,21 @@ MatchEstimate? estimateMatch(
       lh *= math.exp(t);
       la *= math.exp(-t);
     }
+  }
+
+  // Kézi korrekció (hiányzó játékos, rossz forma, ...).
+  var usedAdjust = false;
+  final adjHome = adjust?[homeId];
+  final adjAway = adjust?[awayId];
+  if (adjHome != null && !adjHome.isNeutral && !adjHome.expired) {
+    lh *= 1 + adjHome.attackPct / 100;
+    la *= 1 + adjHome.defencePct / 100;
+    usedAdjust = true;
+  }
+  if (adjAway != null && !adjAway.isNeutral && !adjAway.expired) {
+    la *= 1 + adjAway.attackPct / 100;
+    lh *= 1 + adjAway.defencePct / 100;
+    usedAdjust = true;
   }
 
   // Egymás elleni meccsek (ha van elég).
@@ -235,6 +256,7 @@ MatchEstimate? estimateMatch(
     over25: (pOver / sum).clamp(0.0, 1.0).toDouble(),
     bttsYes: (pBtts / sum).clamp(0.0, 1.0).toDouble(),
     usedH2h: usedH2h,
+    adjusted: usedAdjust,
   );
 }
 
@@ -297,6 +319,7 @@ MatchEstimate liveEstimate(MatchEstimate b, int gh, int ga, int minute) {
     over25: (pOver / sum).clamp(0.0, 1.0).toDouble(),
     bttsYes: (pBtts / sum).clamp(0.0, 1.0).toDouble(),
     usedH2h: b.usedH2h,
+    adjusted: b.adjusted,
   );
 }
 
@@ -337,4 +360,65 @@ List<LiveStep> liveTimeline(
   }
   if (h != curHome || a != curAway) return const <LiveStep>[];
   return steps;
+}
+
+/// Az esély időbeli alakulása egy élő meccsen (3 percenként mintavételezve).
+class LiveSeries {
+  final List<LiveStep> points;
+
+  /// A gólok: (perc, hazai-e).
+  final List<(int, bool)> goals;
+  const LiveSeries(this.points, this.goals);
+}
+
+/// Percről percre (3 percenként) újraszámolja az esélyeket a gólok alapján.
+/// Ha az események nem egyeznek a jelenlegi állással, csak a kezdő és a
+/// jelenlegi állapotot adja vissza.
+LiveSeries liveSeries(
+  MatchEstimate base,
+  List<FixtureEvent> events,
+  int curHome,
+  int curAway,
+  int curMinute,
+) {
+  final end = curMinute < 1 ? 1 : curMinute;
+  final goalEvents = [
+    for (final e in events)
+      if (e.type.contains('goal') && (e.side == 'home' || e.side == 'away')) e,
+  ]..sort((a, b) => a.sortKey.compareTo(b.sortKey));
+
+  final goals = <(int, bool)>[
+    for (final g in goalEvents) (parseMinute(g.minute) ?? 0, g.side == 'home'),
+  ];
+  final homeGoals = goals.where((g) => g.$2).length;
+  final awayGoals = goals.length - homeGoals;
+
+  if (homeGoals != curHome || awayGoals != curAway) {
+    return LiveSeries([
+      LiveStep(0, 0, 0, liveEstimate(base, 0, 0, 0)),
+      LiveStep(end, curHome, curAway, liveEstimate(base, curHome, curAway, end)),
+    ], const <(int, bool)>[]);
+  }
+
+  LiveStep at(int m) {
+    var h = 0;
+    var a = 0;
+    for (final g in goals) {
+      if (g.$1 <= m) {
+        if (g.$2) {
+          h++;
+        } else {
+          a++;
+        }
+      }
+    }
+    return LiveStep(m, h, a, liveEstimate(base, h, a, m));
+  }
+
+  final pts = <LiveStep>[];
+  for (var m = 0; m < end; m += 3) {
+    pts.add(at(m));
+  }
+  pts.add(at(end));
+  return LiveSeries(pts, goals);
 }

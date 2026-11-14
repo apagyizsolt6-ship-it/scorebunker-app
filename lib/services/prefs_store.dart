@@ -63,6 +63,10 @@ class AppSettings {
   final int accentIndex;
   final bool oledBlack;
 
+  /// Reggeli összefoglaló értesítés a megadott órában.
+  final bool morningEnabled;
+  final int morningHour;
+
   const AppSettings({
     this.showLogos = false,
     this.themeMode = ThemeMode.system,
@@ -76,6 +80,8 @@ class AppSettings {
     this.quietEnd = 7,
     this.accentIndex = 0,
     this.oledBlack = false,
+    this.morningEnabled = false,
+    this.morningHour = 8,
   });
 
   AppSettings copyWith({
@@ -91,6 +97,8 @@ class AppSettings {
     int? quietEnd,
     int? accentIndex,
     bool? oledBlack,
+    bool? morningEnabled,
+    int? morningHour,
   }) =>
       AppSettings(
         showLogos: showLogos ?? this.showLogos,
@@ -105,6 +113,8 @@ class AppSettings {
         quietEnd: quietEnd ?? this.quietEnd,
         accentIndex: accentIndex ?? this.accentIndex,
         oledBlack: oledBlack ?? this.oledBlack,
+        morningEnabled: morningEnabled ?? this.morningEnabled,
+        morningHour: morningHour ?? this.morningHour,
       );
 }
 
@@ -131,6 +141,8 @@ class SettingsStore {
   static const _qEnd = 'quiet_end';
   static const _accent = 'accent_idx';
   static const _oled = 'oled_black';
+  static const _mOn = 'morning_on';
+  static const _mHour = 'morning_hour';
 
   static Future<AppSettings> load() async {
     final p = await SharedPreferences.getInstance();
@@ -149,6 +161,8 @@ class SettingsStore {
       quietEnd: p.getInt(_qEnd) ?? 7,
       accentIndex: p.getInt(_accent) ?? 0,
       oledBlack: p.getBool(_oled) ?? false,
+      morningEnabled: p.getBool(_mOn) ?? false,
+      morningHour: p.getInt(_mHour) ?? 8,
     );
   }
 
@@ -166,6 +180,8 @@ class SettingsStore {
     await p.setInt(_qEnd, s.quietEnd);
     await p.setInt(_accent, s.accentIndex);
     await p.setBool(_oled, s.oledBlack);
+    await p.setBool(_mOn, s.morningEnabled);
+    await p.setInt(_mHour, s.morningHour);
   }
 }
 

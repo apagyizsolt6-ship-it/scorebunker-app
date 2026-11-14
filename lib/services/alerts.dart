@@ -78,6 +78,38 @@ class Alerts {
     } catch (_) {}
   }
 
+  /// Reggeli összefoglaló: hosszú (kibontható) szöveggel.
+  static Future<void> scheduleMorning({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime at,
+  }) async {
+    await init();
+    if (!_ready) return;
+    try {
+      await _plugin.zonedSchedule(
+        id,
+        title,
+        body,
+        tz.TZDateTime.from(at, tz.UTC),
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            'morning',
+            'Reggeli összefoglaló',
+            channelDescription: 'Napi összefoglaló a kedvenceid meccseiről és a legerősebb esélyekről',
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
+            styleInformation: BigTextStyleInformation(body),
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+    } catch (_) {}
+  }
+
   static Future<void> cancel(int id) async {
     await init();
     if (!_ready) return;
