@@ -251,6 +251,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             s.quietEnabled,
             s.quietStart,
             s.quietEnd,
+            s.morningEnabled,
+            s.morningHour,
           )),
       (_, __) => _syncNotifications(),
     );

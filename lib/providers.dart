@@ -18,6 +18,7 @@ import 'models/player_stats.dart';
 import 'models/reminder.dart';
 import 'models/slip.dart';
 import 'models/standing.dart';
+import 'models/team_adjust.dart';
 import 'models/team.dart';
 import 'models/trend.dart';
 import 'services/api_key_store.dart';
@@ -137,6 +138,16 @@ class SettingsNotifier extends Notifier<AppSettings> {
 
   void setOled(bool v) {
     state = state.copyWith(oledBlack: v);
+    SettingsStore.save(state);
+  }
+
+  void setMorningEnabled(bool v) {
+    state = state.copyWith(morningEnabled: v);
+    SettingsStore.save(state);
+  }
+
+  void setMorningHour(int h) {
+    state = state.copyWith(morningHour: h);
     SettingsStore.save(state);
   }
 }
@@ -600,6 +611,7 @@ final estimateProvider =
   if (k.$1 == 0) return null;
   final calib = ref.watch(calibrationProvider);
   final elo = ref.watch(eloProvider);
+  final adjust = ref.watch(teamAdjustProvider);
   final tableFuture = ref.watch(standingsProvider(k.$1).future);
   // A H2H hibája nem akaszthatja meg a becslést: a hibát azonnal elnyeljük.
   final h2hSafe = ref
@@ -608,7 +620,8 @@ final estimateProvider =
   try {
     final t = await tableFuture;
     final h2h = await h2hSafe;
-    final raw = estimateMatch(t, k.$2, k.$3, h2h: h2h, elo: elo);
+    final raw =
+        estimateMatch(t, k.$2, k.$3, h2h: h2h, elo: elo, adjust: adjust);
     return raw == null ? null : calibrateEstimate(raw, calib);
   } catch (_) {
     return null;
@@ -677,6 +690,15 @@ final playerStatsProvider = FutureProvider.autoDispose
 // ==================== ÉRTESÍTÉSEK ====================
 /// A kedvenc csapatok következő meccseire (ma + 2 nap) kezdés-értesítést ütemez.
 /// Minden szinkronnál előbb lemondja a korábban ütemezetteket.
+const int _morningIdBase = 1400000000;
+
+class _MorningPick {
+  final String label;
+  final String match;
+  final double p;
+  const _MorningPick(this.label, this.match, this.p);
+}
+
 class NotifSyncNotifier extends Notifier<DateTime?> {
   bool _busy = false;
   bool _again = false;
@@ -709,7 +731,12 @@ class NotifSyncNotifier extends Notifier<DateTime?> {
     for (final id in old) {
       await Alerts.cancel(id);
     }
-    if (!s.notifyKickoff || api == null || favs.isEmpty) {
+    for (var i = 0; i < 3; i++) {
+      await Alerts.cancel(_morningIdBase + i);
+    }
+
+    final wantKick = s.notifyKickoff && favs.isNotEmpty;
+    if (api == null || (!wantKick && !s.morningEnabled)) {
       await NotifStore.save(const <int>[]);
       state = DateTime.now();
       return;
@@ -725,27 +752,143 @@ class NotifSyncNotifier extends Notifier<DateTime?> {
       } catch (_) {
         continue;
       }
-      for (final f in list) {
-        final kick = f.kickoff;
-        if (!f.isScheduled || kick == null) continue;
-        if (!(favs.containsKey(f.homeId) || favs.containsKey(f.awayId))) {
-          continue;
+
+      if (wantKick) {
+        for (final f in list) {
+          final kick = f.kickoff;
+          if (!f.isScheduled || kick == null) continue;
+          if (!(favs.containsKey(f.homeId) || favs.containsKey(f.awayId))) {
+            continue;
+          }
+          final at = kick.subtract(Duration(minutes: s.kickoffMinutes));
+          if (!at.isAfter(now.add(const Duration(minutes: 1)))) continue;
+          if (isQuiet(s, at)) continue; // csendes órákban nem jelzünk
+          await Alerts.scheduleKickoff(
+            id: f.id,
+            title: '⚽ ${f.homeLabel} – ${f.awayLabel}',
+            body: '${leagueHu(f.leagueName)} • kezdés '
+                '${DateFormat('HH:mm').format(kick)}',
+            at: at,
+          );
+          ids.add(f.id);
         }
-        final at = kick.subtract(Duration(minutes: s.kickoffMinutes));
-        if (!at.isAfter(now.add(const Duration(minutes: 1)))) continue;
-        if (isQuiet(s, at)) continue; // csendes órákban nem jelzünk
-        await Alerts.scheduleKickoff(
-          id: f.id,
-          title: '⚽ ${f.homeLabel} – ${f.awayLabel}',
-          body: '${leagueHu(f.leagueName)} • kezdés '
-              '${DateFormat('HH:mm').format(kick)}',
-          at: at,
-        );
-        ids.add(f.id);
+      }
+
+      if (s.morningEnabled) {
+        await _scheduleMorning(api, s, favs, day, d, list);
       }
     }
     await NotifStore.save(ids);
     state = DateTime.now();
+  }
+
+  /// A nap reggeli összefoglalója: a kedvencek meccsei és a legerősebb esélyek.
+  Future<void> _scheduleMorning(
+    SportApi api,
+    AppSettings s,
+    Map<int, String> favs,
+    DateTime day,
+    int index,
+    List<Fixture> list,
+  ) async {
+    final at = DateTime(day.year, day.month, day.day, s.morningHour);
+    if (!at.isAfter(DateTime.now().add(const Duration(minutes: 1)))) return;
+    if (isQuiet(s, at)) return;
+
+    final open = [
+      for (final f in list)
+        if (f.isScheduled) f,
+    ]..sort(byKickoff);
+    if (open.isEmpty) return;
+
+    final mine = [
+      for (final f in open)
+        if (favs.containsKey(f.homeId) || favs.containsKey(f.awayId)) f,
+    ];
+
+    final buf = StringBuffer();
+    if (mine.isNotEmpty) {
+      buf.writeln('Kedvenceid:');
+      for (final f in mine.take(6)) {
+        final k = f.kickoff;
+        final time = k == null ? '' : '${DateFormat('HH:mm').format(k)} ';
+        buf.writeln('• $time${f.homeLabel} – ${f.awayLabel}');
+      }
+    } else if (favs.isNotEmpty) {
+      buf.writeln('A kedvenceidnek ma nincs meccse.');
+    }
+
+    final picks = await _topPicks(api, open);
+    if (picks.isNotEmpty) {
+      if (buf.isNotEmpty) buf.writeln();
+      buf.writeln('Legerősebb esélyek (becslés):');
+      for (final p in picks) {
+        buf.writeln('• ${(p.p * 100).round()}% ${p.label} – ${p.match}');
+      }
+    }
+    if (buf.isNotEmpty) buf.writeln();
+    buf.write('A mai kínálatban ${open.length} meccs van.');
+
+    await Alerts.scheduleMorning(
+      id: _morningIdBase + index,
+      title: '☀️ Mai meccsek',
+      body: buf.toString().trimRight(),
+      at: at,
+    );
+  }
+
+  /// A nap 3 legerősebb esélye a top ligák és a kedvencek bajnokságaiból.
+  Future<List<_MorningPick>> _topPicks(SportApi api, List<Fixture> open) async {
+    final favs = ref.read(favoritesProvider);
+    final calib = ref.read(calibrationProvider);
+    final elo = ref.read(eloProvider);
+
+    final leagues = <int>{};
+    for (final f in open) {
+      if (f.leagueId == 0) continue;
+      final fav = favs.containsKey(f.homeId) || favs.containsKey(f.awayId);
+      if (fav || topLeagueOf(f) != null) leagues.add(f.leagueId);
+    }
+    final tables = <int, LeagueTable>{};
+    for (final id in leagues.take(10)) {
+      try {
+        tables[id] = await api.standings(id);
+      } catch (_) {}
+    }
+
+    final cands = <_MorningPick>[];
+    for (final f in open) {
+      final t = tables[f.leagueId];
+      if (t == null) continue;
+      final raw = estimateMatch(t, f.homeId, f.awayId, elo: elo);
+      if (raw == null) continue;
+      final e = calibrateEstimate(raw, calib);
+      final match = '${f.homeLabel}–${f.awayLabel}';
+
+      final r = [
+        (Pick.home, e.home),
+        (Pick.draw, e.draw),
+        (Pick.away, e.away),
+      ]..sort((a, b) => b.$2.compareTo(a.$2));
+      if (r.first.$2 >= 0.55) {
+        final label = switch (r.first.$1) {
+          Pick.home => '${f.homeLabel} nyer',
+          Pick.away => '${f.awayLabel} nyer',
+          _ => 'Döntetlen',
+        };
+        cands.add(_MorningPick(label, match, r.first.$2));
+      }
+      final g = e.over25 >= e.under25
+          ? (Pick.over25, e.over25)
+          : (Pick.under25, e.under25);
+      if (g.$2 >= 0.62) cands.add(_MorningPick(g.$1.long, match, g.$2));
+      final b = e.bttsYes >= e.bttsNo
+          ? (Pick.bttsYes, e.bttsYes)
+          : (Pick.bttsNo, e.bttsNo);
+      if (b.$2 >= 0.62) cands.add(_MorningPick(b.$1.long, match, b.$2));
+    }
+    cands.sort((a, b) => b.p.compareTo(a.p));
+    return cands.take(3).toList();
   }
 }
 
@@ -1140,3 +1283,38 @@ class TeamIndexNotifier extends Notifier<Map<int, TeamEntry>> {
 final teamIndexProvider =
     NotifierProvider<TeamIndexNotifier, Map<int, TeamEntry>>(
         TeamIndexNotifier.new);
+
+// ==================== KÉZI CSAPAT-KORREKCIÓ ====================
+class TeamAdjustNotifier extends Notifier<Map<int, TeamAdjust>> {
+  @override
+  Map<int, TeamAdjust> build() {
+    _load();
+    return const <int, TeamAdjust>{};
+  }
+
+  Future<void> _load() async {
+    final m = await TeamAdjustStore.load();
+    if (m.isNotEmpty) state = m;
+  }
+
+  void set(int teamId, TeamAdjust a) {
+    final next = <int, TeamAdjust>{...state};
+    if (a.isNeutral) {
+      next.remove(teamId);
+    } else {
+      next[teamId] = a;
+    }
+    state = next;
+    TeamAdjustStore.save(next);
+  }
+
+  void clear(int teamId) {
+    final next = <int, TeamAdjust>{...state}..remove(teamId);
+    state = next;
+    TeamAdjustStore.save(next);
+  }
+}
+
+final teamAdjustProvider =
+    NotifierProvider<TeamAdjustNotifier, Map<int, TeamAdjust>>(
+        TeamAdjustNotifier.new);
