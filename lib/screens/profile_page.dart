@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import '../models/live_score.dart';
 import '../providers.dart';
 import '../services/alerts.dart';
-import '../services/sport_api.dart';
+import '../services/statpal_api.dart';
 import '../services/update_check.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -505,8 +505,8 @@ class ProfilePage extends ConsumerWidget {
               children: const [
                 SizedBox(height: 8),
                 Text(
-                  'Adatforrás: SportAPI (sportapi.ai). Az élő állások '
-                  'WebSocketen érkeznek, a tabellák és statisztikák REST API-n.',
+                  'Adatforrás: StatPal. Az élő eredmények REST API-n, '
+                  '15 másodpercenként frissülnek.',
                 ),
               ],
             ),

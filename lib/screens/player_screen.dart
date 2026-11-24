@@ -6,7 +6,7 @@ import '../providers.dart';
 import '../services/prefs_store.dart';
 import '../widgets/common.dart';
 
-/// Játékosoldal: szezon-összesítő és az utolsó meccsek a SportAPI adataiból.
+/// Játékosoldal: szezon-összesítő és az utolsó meccsek a StatPal adataiból.
 class PlayerScreen extends ConsumerWidget {
   final String name;
   final int teamId;

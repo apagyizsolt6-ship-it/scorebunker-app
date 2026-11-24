@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers.dart';
-import '../services/sport_api.dart';
+import '../services/statpal_api.dart';
 
 class ApiKeyScreen extends ConsumerStatefulWidget {
   const ApiKeyScreen({super.key});
@@ -35,7 +35,7 @@ class _ApiKeyScreenState extends ConsumerState<ApiKeyScreen> {
     });
     try {
       // Próbahívás: csak érvényes kulcsot mentünk el.
-      await SportApi(k).fixturesByDate(DateTime.now());
+      await StatPalApi(k).fixturesByDate(DateTime.now());
       await ref.read(apiKeyProvider.notifier).setKey(k);
       if (!mounted) return;
       Navigator.pop(context);
@@ -60,7 +60,7 @@ class _ApiKeyScreenState extends ConsumerState<ApiKeyScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           const Text(
-            'Add meg a sportapi.ai kulcsodat (sk_live_...). '
+            'Add meg a StatPal hozzáférési kulcsodat. '
             'A kulcs csak a készüléken tárolódik.',
           ),
           const SizedBox(height: 16),

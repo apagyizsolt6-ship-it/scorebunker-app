@@ -536,7 +536,7 @@ class _SwipeDays extends ConsumerWidget {
   }
 }
 
-/// Az élő (WebSocket) kapcsolat állapota: zöld = él, narancs = kapcsolódik,
+/// Az élő (REST frissítés) kapcsolat állapota: zöld = él, narancs = kapcsolódik,
 /// szürke = nincs kapcsolat. Koppintásra újra próbál csatlakozni.
 class _LiveDot extends ConsumerWidget {
   const _LiveDot();

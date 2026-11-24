@@ -14,7 +14,7 @@ import '../models/standing.dart';
 import '../providers.dart';
 import '../services/estimator.dart';
 import '../services/preview.dart';
-import '../services/sport_api.dart';
+import '../services/statpal_api.dart';
 import '../widgets/charts.dart';
 import '../widgets/common.dart';
 import '../widgets/form_spark.dart';
@@ -490,7 +490,7 @@ class MatchDetailScreen extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Text(
-                'Szöglet-statisztikát a SportAPI nem szolgáltat, ezért itt nem jelenik meg.',
+                'A szögletstatisztika StatPal-integrációja a következő fejlesztési lépésben készül el.',
                 style: TextStyle(fontSize: 12),
               ),
             ),

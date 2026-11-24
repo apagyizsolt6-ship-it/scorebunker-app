@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import '../models/fixture.dart';
 import '../models/slip.dart';
 import '../providers.dart';
-import '../services/sport_api.dart';
+import '../services/statpal_api.dart';
 import '../services/system_bets.dart';
 
 /// Mentett szelvények: a meccsek végeredménye alapján automatikusan kiértékelve.
