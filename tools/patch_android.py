@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A `flutter create .` után lefutó javítások az Android projekten:
  - engedélyek (internet, értesítések, rezgés)
- - az app neve: APISCORES
+ - az app neve: Apisccores
  - kék háttér az indításkor (a Flutter animált indítóképernyője előtt)
  - a plugin-modulok lint-vital feladatának kikapcsolása (lint-összeomlás ellen)
  - core library desugaring (a flutter_local_notifications miatt kell)
@@ -27,7 +27,7 @@ for perm in (
         tag = f'<uses-permission android:name="{perm}"/>'
         text = text.replace('<application', tag + '\n    <application', 1)
 
-text = re.sub(r'android:label="[^"]*"', 'android:label="APISCORES"', text, count=1)
+text = re.sub(r'android:label="[^"]*"', 'android:label="Apisccores"', text, count=1)
 manifest.write_text(text, encoding='utf-8')
 print('manifest ok')
 
