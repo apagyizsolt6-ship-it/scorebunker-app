@@ -846,11 +846,12 @@ class _H2HBox extends StatelessWidget {
   }
 }
 
-// ==================== ÖSSZEÁLLÍTÁS ====================
+// ==================== PROFI PÁLYA + ÖSSZEÁLLÍTÁS ====================
 class _LineupsSection extends ConsumerStatefulWidget {
   final int fixtureId;
   final String home;
   final String away;
+
   const _LineupsSection({
     required this.fixtureId,
     required this.home,
@@ -861,92 +862,366 @@ class _LineupsSection extends ConsumerStatefulWidget {
   ConsumerState<_LineupsSection> createState() => _LineupsSectionState();
 }
 
-class _LineupsSectionState extends ConsumerState<_LineupsSection> {
+class _LineupsSectionState extends ConsumerState<_LineupsSection>
+    with SingleTickerProviderStateMixin {
   bool _opened = false;
+  late final AnimationController _intro = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 850),
+  );
 
-  Widget _team(String name, TeamLineup l) {
-    Widget player(LineupPlayer p) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Row(
+  @override
+  void dispose() {
+    _intro.dispose();
+    super.dispose();
+  }
+
+  int _role(LineupPlayer p) {
+    final v = p.position.toLowerCase();
+    if (v.contains('goal') || v.contains('keeper') || v == 'gk' ||
+        v.contains('kapus')) return 0;
+    if (v.contains('def') || v.contains('back') || v == 'df' ||
+        v.contains('véd')) return 1;
+    if (v.contains('mid') || v.contains('centre') || v.contains('wing') ||
+        v == 'mf' || v.contains('közép')) return 2;
+    if (v.contains('att') || v.contains('forward') || v.contains('striker') ||
+        v == 'fw' || v.contains('csat')) return 3;
+    return 4;
+  }
+
+  List<List<LineupPlayer>> _rows(TeamLineup lineup, {required bool reverse}) {
+    final grouped = <int, List<LineupPlayer>>{
+      for (var i = 0; i < 5; i++) i: <LineupPlayer>[],
+    };
+    for (final p in lineup.starters) {
+      grouped[_role(p)]!.add(p);
+    }
+    final roles = reverse ? [3, 2, 1, 0, 4] : [0, 1, 2, 3, 4];
+    return [
+      for (final role in roles)
+        if (grouped[role]!.isNotEmpty) grouped[role]!,
+    ];
+  }
+
+  Widget _player(LineupPlayer p, Color accent, {required bool compact}) {
+    final label = p.name.trim().isEmpty ? 'Ismeretlen' : p.name;
+    return SizedBox(
+      width: compact ? 66 : 76,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: compact ? 31 : 36,
+            height: compact ? 31 : 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF102B36).withValues(alpha: 0.96),
+              border: Border.all(color: accent, width: 1.8),
+              boxShadow: [
+                BoxShadow(color: accent.withValues(alpha: 0.48), blurRadius: 11),
+                const BoxShadow(color: Colors.black38, blurRadius: 4, offset: Offset(0, 2)),
+              ],
+            ),
+            child: Text(
+              p.shirt?.toString() ?? '•',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: compact ? 11 : 12,
+              ),
+            ),
+          ),
+          const SizedBox(height: 3),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.62),
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.13)),
+            ),
+            child: Text(
+              '${p.isCaptain ? '© ' : ''}$label',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                shadows: [Shadow(color: Colors.black, blurRadius: 3)],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _teamRows(TeamLineup lineup, Color accent, {required bool reverse}) {
+    final rows = _rows(lineup, reverse: reverse);
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        for (final row in rows)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                for (final p in row)
+                  Flexible(child: _player(p, accent, compact: row.length >= 5)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _substitutes(String title, List<LineupPlayer> players, Color color) {
+    if (players.isEmpty) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.68),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.people_alt_outlined, size: 16, color: color),
+            const SizedBox(width: 6),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+            const Spacer(),
+            Text('${players.length} fő', style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ]),
+          const SizedBox(height: 7),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
             children: [
-              SizedBox(
-                width: 24,
-                child: Text(p.shirt?.toString() ?? '',
-                    style: const TextStyle(
-                        fontSize: 12, fontWeight: FontWeight.w700)),
-              ),
-              Expanded(
-                child: Text(
-                  p.isCaptain ? '${p.name} (C)' : p.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12),
+              for (final p in players)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    color: color.withValues(alpha: 0.09),
+                    border: Border.all(color: color.withValues(alpha: 0.2)),
+                  ),
+                  child: Text(
+                    '${p.shirt == null ? '' : '${p.shirt} · '}${p.name}${p.isCaptain ? ' (C)' : ''}',
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+                  ),
                 ),
-              ),
             ],
           ),
-        );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(name,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
-            overflow: TextOverflow.ellipsis),
-        const SizedBox(height: 4),
-        ...l.starters.map(player),
-        if (l.subs.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          const Text('Cserék',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 2),
-          ...l.subs.map(player),
         ],
-      ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    const homeAccent = Color(0xFF20E6C5);
+    const awayAccent = Color(0xFFB58CFF);
+
     return Card(
       margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
-        title: const Text('Összeállítás',
+        leading: const Icon(Icons.sports_soccer),
+        title: const Text('Felállás és összeállítás',
             style: TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: const Text('Taktikai pálya · kezdőcsapat · cserék',
+            style: TextStyle(fontSize: 11)),
         shape: const Border(),
         collapsedShape: const Border(),
         onExpansionChanged: (open) {
-          if (open && !_opened) setState(() => _opened = true);
+          if (open) {
+            setState(() => _opened = true);
+            _intro.forward(from: 0);
+          }
         },
-        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
         children: [
           if (_opened)
             ref.watch(lineupsProvider(widget.fixtureId)).when(
-                  loading: () => const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                  error: (e, _) => Text(errorText(e),
-                      style: const TextStyle(color: Colors.red)),
-                  data: (l) {
-                    if (l == null) {
-                      return const Text(
-                          'Az összeállítás még nem elérhető ehhez a meccshez.');
-                    }
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              loading: () => const Padding(
+                padding: EdgeInsets.all(28),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+              error: (e, _) => Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(errorText(e), style: const TextStyle(color: Colors.red)),
+              ),
+              data: (l) {
+                if (l == null) {
+                  return const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: Text('A hivatalos összeállítás még nem érhető el ehhez a mérkőzéshez.'),
+                  );
+                }
+                return Column(
+                  children: [
+                    Row(
                       children: [
-                        Expanded(child: _team(widget.home, l.home)),
-                        const SizedBox(width: 12),
-                        Expanded(child: _team(widget.away, l.away)),
+                        Expanded(child: _teamLabel(widget.away, 'VENDÉG', awayAccent)),
+                        const SizedBox(width: 8),
+                        Expanded(child: _teamLabel(widget.home, 'HAZAI', homeAccent)),
                       ],
-                    );
-                  },
-                ),
+                    ),
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: AnimatedBuilder(
+                        animation: _intro,
+                        builder: (context, child) => Opacity(
+                          opacity: _intro.value.clamp(0.0, 1.0).toDouble(),
+                          child: Transform.translate(
+                            offset: Offset(0, 12 * (1 - _intro.value)),
+                            child: child,
+                          ),
+                        ),
+                        child: Container(
+                          height: 510,
+                          width: double.infinity,
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFF0B503F), Color(0xFF08734F), Color(0xFF064735)],
+                            ),
+                          ),
+                          child: Stack(
+                            children: [
+                              const Positioned.fill(child: CustomPaint(painter: _ProPitchPainter())),
+                              Positioned.fill(
+                                top: 8,
+                                bottom: 260,
+                                left: 2,
+                                right: 2,
+                                child: _teamRows(l.away, awayAccent, reverse: false),
+                              ),
+                              Positioned.fill(
+                                top: 260,
+                                bottom: 8,
+                                left: 2,
+                                right: 2,
+                                child: _teamRows(l.home, homeAccent, reverse: true),
+                              ),
+                              Positioned(
+                                top: 9, left: 12,
+                                child: _pitchTag('VENDÉG', awayAccent),
+                              ),
+                              Positioned(
+                                bottom: 9, right: 12,
+                                child: _pitchTag('HAZAI', homeAccent),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _legendDot(homeAccent, 'Hazai'),
+                        const SizedBox(width: 18),
+                        _legendDot(awayAccent, 'Vendég'),
+                        const SizedBox(width: 18),
+                        const Icon(Icons.stadium_outlined, size: 13, color: Colors.grey),
+                        const SizedBox(width: 4),
+                        const Text('Taktikai pálya', style: TextStyle(fontSize: 10)),
+                      ],
+                    ),
+                    _substitutes('${widget.home} · Cserék', l.home.subs, homeAccent),
+                    _substitutes('${widget.away} · Cserék', l.away.subs, awayAccent),
+                  ],
+                );
+              },
+            ),
         ],
       ),
     );
   }
+
+  Widget _teamLabel(String name, String side, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(11),
+      color: color.withValues(alpha: 0.08),
+      border: Border.all(color: color.withValues(alpha: 0.35)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(side, style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+        const SizedBox(height: 2),
+        Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+      ],
+    ),
+  );
+
+  Widget _pitchTag(String text, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+    decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.42), borderRadius: BorderRadius.circular(6)),
+    child: Text(text, style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.w900, letterSpacing: 1)),
+  );
+
+  Widget _legendDot(Color color, String label) => Row(
+    children: [
+      Container(width: 7, height: 7, decoration: BoxDecoration(color: color, shape: BoxShape.circle, boxShadow: [BoxShadow(color: color.withValues(alpha: 0.7), blurRadius: 5)])),
+      const SizedBox(width: 4),
+      Text(label, style: const TextStyle(fontSize: 10)),
+    ],
+  );
+}
+
+class _ProPitchPainter extends CustomPainter {
+  const _ProPitchPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final line = Paint()
+      ..color = Colors.white.withValues(alpha: 0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.35;
+    final outer = Rect.fromLTWH(10, 9, w - 20, h - 18);
+    canvas.drawRect(outer, line);
+    canvas.drawLine(Offset(10, h / 2), Offset(w - 10, h / 2), line);
+    canvas.drawCircle(Offset(w / 2, h / 2), w * 0.145, line);
+    canvas.drawCircle(Offset(w / 2, h / 2), 2.5, Paint()..color = Colors.white.withValues(alpha: 0.7));
+
+    final boxW = w * 0.62;
+    final boxH = h * 0.115;
+    final smallW = w * 0.34;
+    final smallH = h * 0.045;
+    for (final top in [true, false]) {
+      final y = top ? 9.0 : h - 9 - boxH;
+      final sy = top ? 9.0 : h - 9 - smallH;
+      canvas.drawRect(Rect.fromLTWH((w - boxW) / 2, y, boxW, boxH), line);
+      canvas.drawRect(Rect.fromLTWH((w - smallW) / 2, sy, smallW, smallH), line);
+      final spotY = top ? 9 + boxH * 0.78 : h - 9 - boxH * 0.78;
+      canvas.drawCircle(Offset(w / 2, spotY), 2, Paint()..color = Colors.white.withValues(alpha: 0.7));
+    }
+
+    final stripe = Paint()..color = Colors.white.withValues(alpha: 0.025);
+    for (var i = 0; i < 8; i++) {
+      if (i.isEven) canvas.drawRect(Rect.fromLTWH(10 + (w - 20) * i / 8, 10, (w - 20) / 8, h - 20), stripe);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ProPitchPainter oldDelegate) => false;
 }
 
 // ==================== BECSÜLT ESÉLYEK ====================
