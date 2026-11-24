@@ -188,8 +188,8 @@ class FixtureEvent {
 
   String get icon {
     if (type.contains('goal')) return '⚽';
-    if (type.contains('yellow')) return '🟨';
-    if (type.contains('red')) return '🟥';
+    if (type.contains('yellow') || type.contains('booking')) return '🟨';
+    if (type.contains('red') || type.contains('send')) return '🟥';
     if (type.contains('sub')) return '🔁';
     return '•';
   }
@@ -210,4 +210,37 @@ class FixtureEvent {
         minute: (j['minute'] ?? '').toString(),
         extra: j['extra_info']?.toString(),
       );
+
+  factory FixtureEvent.fromStatPal(
+    Map<String, dynamic> j, {
+    String homeId = '',
+    String awayId = '',
+    String homeName = '',
+    String awayName = '',
+  }) {
+    final rawType = (j['type'] ?? '').toString().toLowerCase();
+    final rawTeamValue = (j['team'] ?? '').toString();
+    final rawTeam = rawTeamValue.toLowerCase();
+    final side = rawTeam == 'home' || rawTeam == '1' ||
+            (homeId.isNotEmpty && rawTeamValue == homeId) ||
+            (homeName.isNotEmpty && rawTeam == homeName.toLowerCase())
+        ? 'home'
+        : rawTeam == 'away' || rawTeam == '2' ||
+                (awayId.isNotEmpty && rawTeamValue == awayId) ||
+                (awayName.isNotEmpty && rawTeam == awayName.toLowerCase())
+            ? 'away'
+            : ''; 
+    final rawMinute = (j['minute'] ?? '').toString();
+    final extraMinute = (j['extra_min'] ?? '').toString();
+    final minute = extraMinute.isEmpty || extraMinute == '0'
+        ? rawMinute
+        : '$rawMinute+$extraMinute';
+    return FixtureEvent(
+      type: rawType,
+      side: side,
+      player: (j['player'] ?? '').toString(),
+      minute: minute,
+      extra: j['result']?.toString(),
+    );
+  }
 }

@@ -150,19 +150,23 @@ class LeagueTable {
       }
     }
 
-    read(j['data'], null);
-    final groups = j['groups'];
+    final payload = j['data'] is Map
+        ? Map<String, dynamic>.from(j['data'])
+        : j;
+    read(j['data'] is List ? j['data'] : null, null);
+    read(payload['standings'] ?? payload['table'] ?? payload['rows'], null);
+    final groups = payload['groups'] ?? j['groups'];
     if (groups is List) {
       for (final g in groups) {
         if (g is Map) {
           final name = (g['group'] ?? g['name'] ?? g['title'])?.toString();
-          read(g['table'] ?? g['data'] ?? g['rows'], name);
+          read(g['table'] ?? g['data'] ?? g['rows'] ?? g['standings'], name);
         }
       }
     }
     return LeagueTable(
-      season: _s(j['season']),
-      format: _s(j['format']),
+      season: _s(payload['season'] ?? j['season']),
+      format: _s(payload['format'] ?? j['format']),
       rows: rows,
     );
   }
