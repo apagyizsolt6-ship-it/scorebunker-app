@@ -129,7 +129,7 @@ class MatchDetailScreen extends ConsumerWidget {
             icon: const Icon(Icons.refresh),
             onPressed: () {
               ref.invalidate(detailProvider(f.id));
-              ref.invalidate(statsProvider(f.id));
+              ref.invalidate(statsProvider((f.leagueId, f.id)));
               ref.invalidate(fixturesProvider);
             },
           ),
@@ -138,7 +138,7 @@ class MatchDetailScreen extends ConsumerWidget {
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(detailProvider(f.id));
-          ref.invalidate(statsProvider(f.id));
+          ref.invalidate(statsProvider((f.leagueId, f.id)));
           ref.invalidate(fixturesProvider);
           await ref.read(detailProvider(f.id).future);
         },
@@ -147,7 +147,7 @@ class MatchDetailScreen extends ConsumerWidget {
           padding: const EdgeInsets.all(16),
           children: [
             // Élő meccsnél a részletek és a statisztika magától frissül.
-            _LiveRefresher(fixtureId: f.id, live: f.isLive),
+            _LiveRefresher(leagueId: f.leagueId, fixtureId: f.id, live: f.isLive),
 
             // Fejléc
             Card(
@@ -310,7 +310,7 @@ class MatchDetailScreen extends ConsumerWidget {
 
               // Statisztika
               _title('Statisztika'),
-              _StatsSection(fixtureId: f.id),
+              _StatsSection(leagueId: f.leagueId, fixtureId: f.id),
               const SizedBox(height: 24),
             ],
 
@@ -576,12 +576,13 @@ const List<(String, String, bool)> _statRows = [
 ];
 
 class _StatsSection extends ConsumerWidget {
+  final int leagueId;
   final int fixtureId;
-  const _StatsSection({required this.fixtureId});
+  const _StatsSection({required this.leagueId, required this.fixtureId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final stats = ref.watch(statsProvider(fixtureId));
+    final stats = ref.watch(statsProvider((leagueId, fixtureId)));
     return stats.when(
       loading: () => const Padding(
         padding: EdgeInsets.all(16),
@@ -1321,9 +1322,10 @@ class _EstimateCard extends StatelessWidget {
 // ==================== ÉLŐ AUTOMATIKUS FRISSÍTÉS ====================
 /// Élő meccsnél 45 másodpercenként újratölti az eseményeket és a statisztikát.
 class _LiveRefresher extends ConsumerStatefulWidget {
+  final int leagueId;
   final int fixtureId;
   final bool live;
-  const _LiveRefresher({required this.fixtureId, required this.live});
+  const _LiveRefresher({required this.leagueId, required this.fixtureId, required this.live});
 
   @override
   ConsumerState<_LiveRefresher> createState() => _LiveRefresherState();
@@ -1351,7 +1353,7 @@ class _LiveRefresherState extends ConsumerState<_LiveRefresher> {
     _timer = Timer.periodic(const Duration(seconds: 45), (_) {
       if (!mounted) return;
       ref.invalidate(detailProvider(widget.fixtureId));
-      ref.invalidate(statsProvider(widget.fixtureId));
+      ref.invalidate(statsProvider((widget.leagueId, widget.fixtureId)));
     });
   }
 
