@@ -185,10 +185,15 @@ class SportApi {
       ];
 
   /// `ttl`: ha meg van adva, a lemezes gyorsítótárból is jöhet a lista.
-  Future<List<Fixture>> fixturesByDate(DateTime d, {Duration? ttl}) async {
+  Future<List<Fixture>> fixturesByDate(
+    DateTime d, {
+    Duration? ttl,
+    bool force = false,
+  }) async {
     final j = await _get(
       '/fixtures/date/${DateFormat('yyyy-MM-dd').format(d)}',
       ttl: ttl,
+      force: force,
     );
     return _fixtures(j['data']);
   }
