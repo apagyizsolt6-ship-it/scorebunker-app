@@ -44,7 +44,7 @@ class BackupService {
     'morning_hour': 'i',
     'team_adjust_v1': 's',
   };
-  static const String _apiKey = 'sportapi_key';
+  static const String _apiKey = 'statpal_access_key';
 
   static Future<String> export({bool includeApiKey = false}) async {
     final p = await SharedPreferences.getInstance();
