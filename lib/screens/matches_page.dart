@@ -15,6 +15,9 @@ import 'team_search_screen.dart';
 // ==================== CSOPORTOSÍTÁS (kedvencek + top bajnokságok + országok) ====================
 const String _otherLabel = 'Nemzetközi / egyéb';
 
+/// Gyors kezdési időszűrő: null = minden meccs, különben következő 3/6/9 óra.
+final _kickoffWindowProvider = StateProvider<int?>((ref) => null);
+
 /// Zászló emoji az országkódból (pl. "ES", "GB-ENG", "EU").
 String _flagFor(String geo) {
   final g = geo.toUpperCase();
@@ -185,6 +188,7 @@ class MatchesPage extends ConsumerWidget {
     final collapsed = ref.watch(collapsedCountriesProvider);
     final filter = ref.watch(matchFilterProvider);
     final favOnly = ref.watch(favOnlyProvider);
+    final kickoffWindow = ref.watch(_kickoffWindowProvider);
     final favs = ref.watch(favoritesProvider);
     final favIds = favs.keys.toSet();
     final all = ref.watch(liveFixturesProvider).valueOrNull ?? const <Fixture>[];
@@ -209,6 +213,35 @@ class MatchesPage extends ConsumerWidget {
         centerTitle: true,
         actions: [
           const _LiveDot(),
+          PopupMenuButton<int?>(
+            tooltip: 'Kezdési idő gyorsszűrő',
+            icon: Icon(
+              Icons.schedule,
+              color: kickoffWindow == null
+                  ? null
+                  : Theme.of(context).colorScheme.primary,
+            ),
+            onSelected: (hours) =>
+                ref.read(_kickoffWindowProvider.notifier).state = hours,
+            itemBuilder: (context) => [
+              const PopupMenuItem<int?>(
+                value: null,
+                child: Text('Minden mérkőzés'),
+              ),
+              const PopupMenuItem<int?>(
+                value: 3,
+                child: Text('Következő 3 óra'),
+              ),
+              const PopupMenuItem<int?>(
+                value: 6,
+                child: Text('Következő 6 óra'),
+              ),
+              const PopupMenuItem<int?>(
+                value: 9,
+                child: Text('Következő 9 óra'),
+              ),
+            ],
+          ),
           IconButton(
             tooltip: 'Csapatkereső',
             icon: const Icon(Icons.manage_search),
@@ -268,12 +301,28 @@ class MatchesPage extends ConsumerWidget {
                         if (!lp.hidden.contains(m.leagueId)) m,
                     ];
                     final hiddenCount = list.length - visible.length;
-                    final filtered = _applyFilter(
+                    final baseFiltered = _applyFilter(
                       _applySearch(visible, query),
                       filter,
                       favOnly,
                       favIds,
                     );
+                    final now = DateTime.now();
+                    final windowEnd = kickoffWindow == null
+                        ? null
+                        : now.add(Duration(hours: kickoffWindow));
+                    final filtered = kickoffWindow == null
+                        ? baseFiltered
+                        : baseFiltered.where((m) {
+                            // Az élő és befejezett meccsek a gyorsszűrő mellett
+                            // is láthatók maradnak; csak a kezdés előttieket
+                            // szűrjük a kiválasztott időablakra.
+                            if (m.isLive || m.isFinished) return true;
+                            final kickoff = m.kickoff;
+                            if (!m.isScheduled || kickoff == null) return false;
+                            return !kickoff.isBefore(now) &&
+                                kickoff.isBefore(windowEnd!);
+                          }).toList();
                     if (filtered.isEmpty) {
                       String msg = 'Nincs találat.';
                       if (list.isEmpty) {
