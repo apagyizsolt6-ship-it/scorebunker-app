@@ -330,10 +330,10 @@ final detailProvider =
 });
 
 final statsProvider =
-    FutureProvider.autoDispose.family<MatchStats?, int>((ref, id) async {
+    FutureProvider.autoDispose.family<MatchStats?, (int, int)>((ref, ids) async {
   final api = ref.watch(apiProvider);
   if (api == null) return null;
-  return api.stats(id);
+  return api.stats(ids.$1, ids.$2);
 });
 
 final lineupsProvider =
