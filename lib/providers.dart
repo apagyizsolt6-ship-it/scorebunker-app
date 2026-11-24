@@ -246,19 +246,47 @@ final matchFilterProvider =
 /// Csak a kedvenc csapatok meccsei.
 final favOnlyProvider = StateProvider<bool>((ref) => false);
 
-/// A REST-ről érkezett nyers lista.
+/// Kézi frissítéskor megkerüli a lemezes cache-t.
+final forceFixturesFetchProvider = StateProvider<bool>((ref) => false);
+
+/// A REST-ről érkezett nyers lista. A mai élő adat rövid, a jövőbeni
+/// program és a lezárt napok hosszabb cache-élettartamot kapnak.
 final fixturesProvider = FutureProvider<List<Fixture>>((ref) async {
   final api = ref.watch(apiProvider);
   if (api == null) return [];
   final date = ref.watch(selectedDateProvider);
-  final list = await api.fixturesByDate(date);
-  // A látott csapatok bekerülnek a csapatkeresőbe.
-  Future.microtask(() {
-    try {
-      ref.read(teamIndexProvider.notifier).add(list);
-    } catch (_) {}
-  });
-  return list;
+  final force = ref.read(forceFixturesFetchProvider);
+  final now = DateTime.now();
+  final selectedDay = DateTime(date.year, date.month, date.day);
+  final today = DateTime(now.year, now.month, now.day);
+  final ttl = selectedDay == today
+      ? const Duration(seconds: 20)
+      : selectedDay.isAfter(today)
+          ? const Duration(minutes: 10)
+          : const Duration(hours: 24);
+
+  try {
+    final list = await api.fixturesByDate(date, ttl: ttl, force: force);
+    if (force) {
+      try {
+        ref.read(forceFixturesFetchProvider.notifier).state = false;
+      } catch (_) {}
+    }
+    // A látott csapatok bekerülnek a csapatkeresőbe.
+    Future.microtask(() {
+      try {
+        ref.read(teamIndexProvider.notifier).add(list);
+      } catch (_) {}
+    });
+    return list;
+  } catch (_) {
+    if (force) {
+      try {
+        ref.read(forceFixturesFetchProvider.notifier).state = false;
+      } catch (_) {}
+    }
+    rethrow;
+  }
 });
 
 /// A nyers lista + a WebSocketen érkezett friss állások.

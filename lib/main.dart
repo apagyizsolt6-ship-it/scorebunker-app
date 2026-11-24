@@ -30,7 +30,7 @@ class ScorebunkerApp extends ConsumerWidget {
       settingsProvider.select((s) => (s.themeMode, s.accentIndex, s.oledBlack)),
     );
     return MaterialApp(
-      title: 'APISCORES',
+      title: 'Apisccores',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(brightness: Brightness.light, accentIndex: cfg.$2),
       darkTheme: buildTheme(
