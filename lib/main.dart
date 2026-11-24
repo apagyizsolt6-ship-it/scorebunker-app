@@ -71,7 +71,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Élő meccsek percadatának frissítése (a gólokat a WebSocket hozza).
+    // Élő meccsek percadatának frissítése (a gólokat a StatPal REST végpontja hozza).
     _timer = Timer.periodic(const Duration(seconds: 60), (_) => _tick());
   }
 

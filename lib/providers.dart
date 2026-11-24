@@ -27,13 +27,12 @@ import 'services/calibration_store.dart';
 import 'services/elo.dart';
 import 'services/disk_cache.dart';
 import 'services/estimator.dart';
-import 'services/live_socket.dart';
 import 'services/alerts.dart';
 import 'services/prefs_store.dart';
 import 'services/season_sim.dart';
 import 'services/team_index.dart';
 import 'services/slip_store.dart';
-import 'services/sport_api.dart';
+import 'services/statpal_api.dart';
 import 'services/trend_engine.dart';
 import 'services/update_check.dart';
 
@@ -43,11 +42,13 @@ class ApiKeyNotifier extends AsyncNotifier<String?> {
   Future<String?> build() => ApiKeyStore.load();
 
   Future<void> setKey(String key) async {
+    DiskCache.clearSync();
     await ApiKeyStore.save(key);
     state = AsyncData(key);
   }
 
   Future<void> clear() async {
+    DiskCache.clearSync();
     await ApiKeyStore.clear();
     state = const AsyncData(null);
   }
@@ -59,12 +60,12 @@ final apiKeyProvider =
 /// Az utolsó válaszfejlécekből kiolvasott napi / havi kérés-keret.
 final quotaProvider = StateProvider<ApiQuota?>((ref) => null);
 
-final apiProvider = Provider<SportApi?>((ref) {
+final apiProvider = Provider<StatPalApi?>((ref) {
   final k = ref.watch(apiKeyProvider).valueOrNull;
   if (k == null || k.isEmpty) return null;
   var alive = true;
   ref.onDispose(() => alive = false);
-  return SportApi(
+  return StatPalApi(
     k,
     onQuota: (q) {
       Future.microtask(() {
@@ -191,42 +192,59 @@ final favoritesProvider =
     NotifierProvider<FavoritesNotifier, Map<int, String>>(
         FavoritesNotifier.new);
 
-// ==================== ÉLŐ (WEBSOCKET) ====================
+// ==================== ÉLŐ (STATPAL REST, 15 MP) ====================
 class LiveNotifier extends Notifier<LiveState> {
-  late LiveSocket _socket;
+  Timer? _timer;
+  StatPalApi? _api;
+  bool _disposed = false;
+  bool _loading = false;
 
   @override
   LiveState build() {
-    _socket = LiveSocket(
-      onScore: (s) {
-        state = state.copyWith(scores: {...state.scores, s.fixtureId: s});
-      },
-      onStatus: (c) {
-        state = state.copyWith(conn: c);
-      },
-    );
-    ref.onDispose(_socket.dispose);
-    ref.listen<AsyncValue<String?>>(
-      apiKeyProvider,
-      (_, next) => _applyKey(next.valueOrNull),
-      fireImmediately: true,
-    );
+    ref.listen<StatPalApi?>(apiProvider, (_, next) {
+      Future.microtask(() => _setApi(next));
+    }, fireImmediately: true);
+    ref.onDispose(() { _disposed = true; _timer?.cancel(); });
     return const LiveState();
   }
 
-  void _applyKey(String? k) {
-    if (k == null || k.isEmpty) {
-      _socket.stop();
-    } else {
-      _socket.start(k);
+  void _setApi(StatPalApi? api) {
+    _api = api;
+    _timer?.cancel();
+    if (api == null) { state = const LiveState(); return; }
+    state = state.copyWith(conn: LiveConn.connecting, scores: {});
+    _refresh();
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) => _refresh());
+  }
+
+  Future<void> _refresh() async {
+    final api = _api;
+    if (_disposed || api == null || _loading) return;
+    _loading = true;
+    try {
+      final matches = await api.liveMatches();
+      if (_disposed || !identical(api, _api)) return;
+      final scores = <int, LiveScore>{};
+      for (final match in matches) {
+        if (match.id == 0) continue;
+        scores[match.id] = LiveScore(
+          fixtureId: match.id, homeScore: match.homeScore, awayScore: match.awayScore,
+          homePen: match.penaltyHome, awayPen: match.penaltyAway,
+          status: match.status, minute: match.minute,
+        );
+      }
+      state = LiveState(scores: scores, conn: LiveConn.on);
+    } catch (_) {
+      if (!_disposed) state = state.copyWith(conn: LiveConn.off);
+    } finally {
+      _loading = false;
     }
   }
 
-  void ensureConnected() => _socket.ensure();
+  void ensureConnected() { if (_api != null) _refresh(); }
 }
 
-final liveProvider =
-    NotifierProvider<LiveNotifier, LiveState>(LiveNotifier.new);
+final liveProvider = NotifierProvider<LiveNotifier, LiveState>(LiveNotifier.new);
 
 // ==================== MECCSLISTA ====================
 final selectedDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
@@ -260,9 +278,9 @@ final fixturesProvider = FutureProvider<List<Fixture>>((ref) async {
   final selectedDay = DateTime(date.year, date.month, date.day);
   final today = DateTime(now.year, now.month, now.day);
   final ttl = selectedDay == today
-      ? const Duration(seconds: 20)
+      ? const Duration(minutes: 10)
       : selectedDay.isAfter(today)
-          ? const Duration(minutes: 10)
+          ? const Duration(hours: 1)
           : const Duration(hours: 24);
 
   try {
@@ -289,7 +307,7 @@ final fixturesProvider = FutureProvider<List<Fixture>>((ref) async {
   }
 });
 
-/// A nyers lista + a WebSocketen érkezett friss állások.
+/// A nyers lista + a StatPal élő végpontjáról érkezett friss állások.
 /// Az app minden képernyője ezt használja.
 final liveFixturesProvider = Provider<AsyncValue<List<Fixture>>>((ref) {
   final base = ref.watch(fixturesProvider);
@@ -812,7 +830,7 @@ class NotifSyncNotifier extends Notifier<DateTime?> {
 
   /// A nap reggeli összefoglalója: a kedvencek meccsei és a legerősebb esélyek.
   Future<void> _scheduleMorning(
-    SportApi api,
+    StatPalApi api,
     AppSettings s,
     Map<int, String> favs,
     DateTime day,
@@ -866,7 +884,7 @@ class NotifSyncNotifier extends Notifier<DateTime?> {
   }
 
   /// A nap 3 legerősebb esélye a top ligák és a kedvencek bajnokságaiból.
-  Future<List<_MorningPick>> _topPicks(SportApi api, List<Fixture> open) async {
+  Future<List<_MorningPick>> _topPicks(StatPalApi api, List<Fixture> open) async {
     final favs = ref.read(favoritesProvider);
     final calib = ref.read(calibrationProvider);
     final elo = ref.read(eloProvider);
