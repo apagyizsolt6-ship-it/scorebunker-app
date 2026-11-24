@@ -201,11 +201,6 @@ class MatchesPage extends ConsumerWidget {
     ];
 
     final liveCount = visibleAll.where((m) => m.isLive).length;
-    final upcomingCount = visibleAll.where((m) => m.isScheduled).length;
-    final finishedCount = visibleAll.where((m) => m.isFinished).length;
-    final favoriteMatchCount = visibleAll
-        .where((m) => favIds.contains(m.homeId) || favIds.contains(m.awayId))
-        .length;
     final allKeys =
         _groupFixtures(visibleAll, favIds, lp.pinned, followed)
             .map((g) => g.key)
@@ -214,7 +209,7 @@ class MatchesPage extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Apisccores'),
+        title: const Text('APISCORES'),
         centerTitle: true,
         actions: [
           const _LiveDot(),
@@ -273,10 +268,7 @@ class MatchesPage extends ConsumerWidget {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () {
-              ref.read(forceFixturesFetchProvider.notifier).state = true;
-              ref.invalidate(fixturesProvider);
-            },
+            onPressed: () => ref.invalidate(fixturesProvider),
           ),
         ],
         bottom: const PreferredSize(
@@ -294,13 +286,6 @@ class MatchesPage extends ConsumerWidget {
           return Column(
             children: [
               const _SearchField(),
-              _DailyOverview(
-                total: visibleAll.length,
-                live: liveCount,
-                upcoming: upcomingCount,
-                finished: finishedCount,
-                favorites: favoriteMatchCount,
-              ),
               _FilterBar(liveCount: liveCount),
               Expanded(
                 child: fixtures.when(
@@ -308,10 +293,7 @@ class MatchesPage extends ConsumerWidget {
                       const Center(child: CircularProgressIndicator()),
                   error: (e, _) => ErrorView(
                     error: e,
-                    onRetry: () {
-                      ref.read(forceFixturesFetchProvider.notifier).state = true;
-                      ref.invalidate(fixturesProvider);
-                    },
+                    onRetry: () => ref.invalidate(fixturesProvider),
                   ),
                   data: (list) {
                     final visible = [
@@ -410,7 +392,6 @@ class MatchesPage extends ConsumerWidget {
 
                     return RefreshIndicator(
                       onRefresh: () async {
-                        ref.read(forceFixturesFetchProvider.notifier).state = true;
                         ref.invalidate(fixturesProvider);
                         await ref.read(fixturesProvider.future);
                       },
@@ -580,185 +561,17 @@ class _LiveDot extends ConsumerWidget {
         },
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-          child: Icon(Icons.circle, size: 12, color: color),
-        ),
-      ),
-    );
-  }
-}
-
-
-/// Napi áttekintő a főoldalon: egy pillantással láthatók a napi állapotok.
-/// A csempék a meglévő meccsszűrőket állítják, nem hoznak létre külön adatlistát.
-class _DailyOverview extends ConsumerWidget {
-  final int total;
-  final int live;
-  final int upcoming;
-  final int finished;
-  final int favorites;
-
-  const _DailyOverview({
-    required this.total,
-    required this.live,
-    required this.upcoming,
-    required this.finished,
-    required this.favorites,
-  });
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final cs = Theme.of(context).colorScheme;
-    final isFavOnly = ref.watch(favOnlyProvider);
-    return Card(
-      margin: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.today_outlined, size: 17, color: cs.primary),
-                const SizedBox(width: 7),
-                Text(
-                  'NAPI ÁTTEKINTÉS',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.8,
-                      ),
-                ),
-                const Spacer(),
-                Text(
-                  '$total mérkőzés',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: cs.onSurfaceVariant,
-                      ),
-                ),
+          child: Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(color: color.withValues(alpha: 0.65), blurRadius: 9, spreadRadius: 1),
               ],
             ),
-            const SizedBox(height: 9),
-            Row(
-              children: [
-                Expanded(
-                  child: _OverviewItem(
-                    icon: Icons.sensors,
-                    label: 'Élő',
-                    value: live,
-                    color: Colors.redAccent,
-                    selected: ref.watch(matchFilterProvider) == MatchFilter.live,
-                    onTap: () {
-                      ref.read(favOnlyProvider.notifier).state = false;
-                      ref.read(matchFilterProvider.notifier).state =
-                          MatchFilter.live;
-                    },
-                  ),
-                ),
-                Expanded(
-                  child: _OverviewItem(
-                    icon: Icons.schedule,
-                    label: 'Közelgő',
-                    value: upcoming,
-                    color: cs.primary,
-                    selected:
-                        ref.watch(matchFilterProvider) == MatchFilter.upcoming,
-                    onTap: () {
-                      ref.read(favOnlyProvider.notifier).state = false;
-                      ref.read(matchFilterProvider.notifier).state =
-                          MatchFilter.upcoming;
-                    },
-                  ),
-                ),
-                Expanded(
-                  child: _OverviewItem(
-                    icon: Icons.flag_outlined,
-                    label: 'Befejezett',
-                    value: finished,
-                    color: cs.tertiary,
-                    selected:
-                        ref.watch(matchFilterProvider) == MatchFilter.finished,
-                    onTap: () {
-                      ref.read(favOnlyProvider.notifier).state = false;
-                      ref.read(matchFilterProvider.notifier).state =
-                          MatchFilter.finished;
-                    },
-                  ),
-                ),
-                Expanded(
-                  child: _OverviewItem(
-                    icon: Icons.star_outline,
-                    label: 'Kedvencek',
-                    value: favorites,
-                    color: Colors.amber,
-                    selected: isFavOnly,
-                    onTap: () {
-                      ref.read(matchFilterProvider.notifier).state =
-                          MatchFilter.all;
-                      ref.read(favOnlyProvider.notifier).state = !isFavOnly;
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _OverviewItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final int value;
-  final Color color;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _OverviewItem({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 3),
-        decoration: BoxDecoration(
-          color: selected ? color.withOpacity(0.13) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: selected
-              ? Border.all(color: color.withOpacity(0.55))
-              : null,
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 18, color: color),
-            const SizedBox(height: 3),
-            Text(
-              '$value',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    fontFeatures: const [],
-                  ),
-            ),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: selected ? color : cs.onSurfaceVariant,
-                    fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-                  ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -875,20 +688,29 @@ class _GroupHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Material(
-        color: group.isFollow
-            ? scheme.secondaryContainer.withValues(alpha: 0.7)
-            : group.isFav
-            ? Colors.amber.withValues(alpha: 0.22)
-            : group.isPin
-                ? scheme.tertiaryContainer.withValues(alpha: 0.6)
-                : group.isTop
-                ? scheme.primaryContainer.withValues(alpha: 0.55)
-                : scheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: onTap,
-          child: Padding(
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: group.isFav
+                    ? [Colors.amber.withValues(alpha: 0.20), scheme.surface.withValues(alpha: 0.82)]
+                    : group.isFollow
+                        ? [scheme.secondary.withValues(alpha: 0.20), scheme.surface.withValues(alpha: 0.82)]
+                        : group.isPin || group.isTop
+                            ? [scheme.primary.withValues(alpha: 0.18), scheme.surface.withValues(alpha: 0.84)]
+                            : [scheme.surfaceContainerHighest.withValues(alpha: 0.82), scheme.surface.withValues(alpha: 0.72)],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: scheme.primary.withValues(alpha: 0.28)),
+              boxShadow: [BoxShadow(color: scheme.primary.withValues(alpha: 0.07), blurRadius: 12)],
+            ),
+            child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
@@ -931,6 +753,7 @@ class _GroupHeader extends StatelessWidget {
                 Icon(collapsed ? Icons.expand_more : Icons.expand_less),
               ],
             ),
+          ),
           ),
         ),
       ),
@@ -1059,15 +882,35 @@ class MatchCard extends ConsumerWidget {
     final f = fixture;
     final scheme = Theme.of(context).colorScheme;
     final favs = ref.watch(favoritesProvider);
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            scheme.surface.withValues(alpha: 0.96),
+            scheme.surfaceContainerHigh.withValues(alpha: 0.62),
+          ],
+        ),
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-            color: Theme.of(context).dividerColor.withValues(alpha: 0.15)),
+        border: Border.all(
+          color: (f.isLive ? Colors.redAccent : scheme.primary).withValues(alpha: f.isLive ? 0.48 : 0.20),
+          width: f.isLive ? 1.15 : 0.8,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: (f.isLive ? Colors.redAccent : scheme.primary).withValues(alpha: f.isLive ? 0.10 : 0.045),
+            blurRadius: f.isLive ? 13 : 8,
+            spreadRadius: 0.2,
+          ),
+        ],
       ),
-      child: InkWell(
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () {
           Navigator.push(
@@ -1122,6 +965,7 @@ class MatchCard extends ConsumerWidget {
             ],
           ),
         ),
+      ),
       ),
     );
   }
