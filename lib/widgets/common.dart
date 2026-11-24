@@ -1,11 +1,10 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/fixture.dart';
 import '../providers.dart';
 import '../screens/api_key_screen.dart';
-import '../services/sport_api.dart';
+import '../services/statpal_api.dart';
 
 void openApiKeyScreen(BuildContext context) {
   Navigator.push(
@@ -28,7 +27,7 @@ class NoKeyView extends StatelessWidget {
             const Icon(Icons.vpn_key_outlined, size: 48),
             const SizedBox(height: 12),
             const Text(
-              'Az adatok megjelenítéséhez add meg a SportAPI kulcsodat.',
+              'Az adatok megjelenítéséhez add meg a StatPal hozzáférési kulcsodat.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
@@ -75,40 +74,23 @@ class ErrorView extends StatelessWidget {
   }
 }
 
-/// Csapatlogó a SportAPI-ról (a Profilban kapcsolható). Kikapcsolva nem
-/// foglal helyet és nem indít kérést. A letöltött logók tárolódnak.
+/// Csapatjelvény helyőrző. A StatPal képek végpontjának lekérése külön,
+/// a dokumentált képazonosító-paraméterek ellenőrzése után kapcsolható be.
 class TeamLogo extends ConsumerWidget {
   final int teamId;
   final double size;
   final bool padRight;
 
-  const TeamLogo({
-    super.key,
-    required this.teamId,
-    this.size = 22,
-    this.padRight = true,
-  });
+  const TeamLogo({super.key, required this.teamId, this.size = 22, this.padRight = true});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final show = ref.watch(settingsProvider.select((s) => s.showLogos));
-    final key = ref.watch(apiKeyProvider).valueOrNull;
-    if (!show || key == null || key.isEmpty || teamId == 0) {
-      return const SizedBox.shrink();
-    }
+    if (!show || teamId == 0) return const SizedBox.shrink();
     return Padding(
       padding: EdgeInsets.only(right: padRight ? 8 : 0),
-      child: CachedNetworkImage(
-        imageUrl: 'https://sportapi.ai/api/teams/$teamId/logo',
-        httpHeaders: {'X-Api-Key': key},
-        cacheKey: 'sportapi_logo_$teamId',
-        width: size,
-        height: size,
-        fit: BoxFit.contain,
-        placeholder: (_, __) => SizedBox(width: size, height: size),
-        errorWidget: (_, __, ___) =>
-            Icon(Icons.shield_outlined, size: size * 0.9),
-      ),
+      child: Icon(Icons.shield_outlined, size: size * 0.9,
+          color: Theme.of(context).colorScheme.onSurfaceVariant),
     );
   }
 }
