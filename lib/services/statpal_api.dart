@@ -64,6 +64,10 @@ class StatPalApi {
   static final LinkedHashMap<String, _Cached> _cache =
       LinkedHashMap<String, _Cached>();
 
+  /// A napi/élő feedből megőrzött nyers meccsadatok. A részletek így
+  /// külön, felesleges API-hívás nélkül is megjeleníthetők.
+  static final Map<int, Map<String, dynamic>> _matchPayloads = {}; 
+
   static ApiQuota? _quotaFrom(Map<String, String> h) {
     int? i(String k) => int.tryParse(h[k] ?? '');
     DateTime? t(String k) {
@@ -203,7 +207,15 @@ class StatPalApi {
       if (matches is! List) continue;
       for (final matchValue in matches) {
         if (matchValue is Map) {
-          out.add(Fixture.fromStatPal(Map<String, dynamic>.from(matchValue), league, forceLive: live));
+          final match = Map<String, dynamic>.from(matchValue);
+          final fixture = Fixture.fromStatPal(match, league, forceLive: live);
+          if (fixture.id != 0) {
+            _matchPayloads[fixture.id] = {
+              ...match,
+              '_league': league,
+            };
+          }
+          out.add(fixture);
         }
       }
     }
@@ -230,31 +242,35 @@ class StatPalApi {
     return _fixtures(j, live: true);
   }
 
-  /// Egy meccs részletei + események egyetlen hívásban.
+  /// A meccs eseményei és félidei állása a napi/élő feedből.
+  /// A StatPal napi és élő válasza tartalmazza ezeket az adatokat.
   Future<FixtureDetail?> fixtureDetail(int fixtureId) async {
-    final j = await _get('/fixtures/$fixtureId');
-    final f = j['fixture'];
-    if (f is! Map) return null;
-    return FixtureDetail.fromJson(Map<String, dynamic>.from(f));
+    final payload = _matchPayloads[fixtureId];
+    if (payload == null) return null;
+    return FixtureDetail.fromStatPal(payload);
   }
 
-  /// Meccsstatisztika; null, ha nincs elérhető adat.
-  Future<MatchStats?> stats(int fixtureId) async {
-    final j = await _get('/fixtures/$fixtureId/stats');
-    if (j['available'] != true) return null;
-    final d = j['data'];
-    if (d is! Map) return null;
-    final s = MatchStats.fromJson(Map<String, dynamic>.from(d));
+  /// Mérkőzés-statisztikák a liga mérkőzés-statisztika végpontjáról.
+  Future<MatchStats?> stats(int leagueId, int fixtureId) async {
+    if (leagueId <= 0 || fixtureId <= 0) return null;
+    final j = await _get(
+      '/leagues/$leagueId/matches/stats?match_id=$fixtureId',
+      ttl: const Duration(minutes: 2),
+    );
+    final data = j['data'] is Map ? Map<String, dynamic>.from(j['data']) : j;
+    final s = MatchStats.fromJson(data);
     return s.isEmpty ? null : s;
   }
 
-  /// Összeállítások; null, ha nincs elérhető adat.
+  /// Kezdőcsapatok és cserék a StatPal meccs-összeállítás végpontjáról.
   Future<Lineups?> lineups(int fixtureId) async {
-    final j = await _get('/fixtures/$fixtureId/lineups');
-    if (j['available'] != true) return null;
-    final d = j['data'];
-    if (d is! Map) return null;
-    final l = Lineups.fromJson(Map<String, dynamic>.from(d));
+    if (fixtureId <= 0) return null;
+    final j = await _get(
+      '/team-lineups?match_id=$fixtureId',
+      ttl: const Duration(minutes: 15),
+    );
+    final data = j['data'] is Map ? Map<String, dynamic>.from(j['data']) : j;
+    final l = Lineups.fromJson(data);
     return l.isEmpty ? null : l;
   }
 
@@ -270,7 +286,7 @@ class StatPalApi {
   /// 4 óráig a lemezről jön, ha nincs `force`.
   Future<LeagueTable> standings(int leagueId, {bool force = false}) async {
     final j = await _get(
-      '/standings/$leagueId',
+      '/leagues/$leagueId/standings',
       ttl: const Duration(hours: 4),
       force: force,
     );
