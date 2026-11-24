@@ -555,15 +555,24 @@ class _TeamBlock extends StatelessWidget {
 
 // ==================== STATISZTIKA ====================
 const List<(String, String, bool)> _statRows = [
+  ('possession', 'Labdabirtoklás', true),
   ('shots', 'Lövések', false),
   ('shots_on_target', 'Kapura lövés', false),
+  ('blocked_shots', 'Blokkolt lövések', false),
+  ('corners', 'Szögletek', false),
+  ('offsides', 'Lesek', false),
   ('fouls', 'Szabálytalanságok', false),
+  ('yellow_cards', 'Sárga lapok', false),
+  ('red_cards', 'Piros lapok', false),
   ('total_passes', 'Passzok', false),
   ('pass_accuracy', 'Passzpontosság', true),
   ('tackles', 'Szerelések', false),
   ('tackle_success', 'Szerelés-hatékonyság', true),
+  ('interceptions', 'Labdaszerzések', false),
+  ('clearances', 'Felszabadítások', false),
+  ('crosses', 'Beadások', false),
   ('saves', 'Védések', false),
-  ('yellow_cards', 'Sárga lapok', false),
+  ('big_chances', 'Nagy helyzetek', false),
 ];
 
 class _StatsSection extends ConsumerWidget {
