@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
-      contents: write   # a GitHub Release létrehozásához
+      contents: write
 
     steps:
       - name: Checkout
@@ -28,9 +28,6 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # ---------- Állandó aláíró kulcs ----------
-      # Az APK-t ugyanaz a kulcs írja alá minden buildnél, így az új verzió a
-      # régi fölé települ. A kulcsot a GitHub cache őrzi (a kulcs neve ne változzon!).
       - name: Restore signing key (cache)
         id: keycache
         uses: actions/cache/restore@v4
@@ -38,10 +35,6 @@ jobs:
           path: ~/.android/debug.keystore
           key: scorebunker-signing-key-v1
 
-      # A legmegbízhatóbb forrás: a repóba mentett TITKOS KULCS (tools/signing/debug.keystore.enc,
-      # titkosítva), amit a SIGNING_PASSPHRASE secret old fel. Ez felülírja a cache-t,
-      # így minden build ugyanazzal a kulccsal íródik alá, a cache-től függetlenül.
-      # Másodlagos lehetőség: a kulcs base64-ben a DEBUG_KEYSTORE_B64 secretben.
       - name: Signing key from repo / secret
         id: keysrc
         env:
@@ -70,7 +63,6 @@ jobs:
           fi
           echo "src=$SRC" >> "$GITHUB_OUTPUT"
 
-      # Ha nincs kulcs (első build vagy törölt cache), itt készül egy új, még a build ELŐTT.
       - name: Ensure signing key exists
         id: genkey
         run: |
@@ -88,7 +80,6 @@ jobs:
             echo "NEW signing key generated"
           fi
 
-      # Az új kulcsot azonnal mentjük (nem a build végén), így egy elbukó build sem veszíti el.
       - name: Save signing key (cache)
         if: steps.genkey.outputs.generated == 'true'
         uses: actions/cache/save@v4
@@ -96,14 +87,11 @@ jobs:
           path: ~/.android/debug.keystore
           key: scorebunker-signing-key-v1
 
-      # ---------- Build ----------
       - name: Create Flutter project structure
         run: |
           flutter create . --project-name scorebunker_app --org com.scorebunker
           echo "Flutter project structure generated"
 
-      # Engedélyek (internet, értesítések, rezgés), az app neve (APISCORES)
-      # és a core library desugaring (flutter_local_notifications).
       - name: Patch Android project
         run: |
           python3 tools/patch_android.py
@@ -119,9 +107,6 @@ jobs:
       - name: Build APK
         run: flutter build apk --release --build-number=${{ github.run_number }} --dart-define=BUILD_NUMBER=${{ github.run_number }}
 
-      # ---------- Aláírás ellenőrzése ----------
-      # A tanúsítvány ujjlenyomata nyilvános adat: ha két build ujjlenyomata
-      # különbözik, a két APK nem települ egymás fölé.
       - name: Signing fingerprint
         id: sig
         run: |
@@ -150,21 +135,19 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
 
-      # Minden build egy GitHub Release-be is kerül: a telefon böngészőjében a
-      # repo "Releases" oldaláról közvetlenül letölthető és telepíthető az APK.
       - name: Name the APK
-        run: cp build/app/outputs/flutter-apk/app-release.apk APISCORES-build-${{ github.run_number }}.apk
+        run: cp build/app/outputs/flutter-apk/app-release.apk Apisccores-build-${{ github.run_number }}.apk
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: APISCORES build ${{ github.run_number }}
+          name: Apisccores build ${{ github.run_number }}
           body: |
             Automatikus build (commit ${{ github.sha }}).
             Telepítés: töltsd le az APK-t a telefonra, és nyisd meg.
 
             Aláírás (SHA-256): ${{ steps.sig.outputs.sha }}
             ${{ steps.sig.outputs.note }}
-          files: APISCORES-build-${{ github.run_number }}.apk
+          files: Apisccores-build-${{ github.run_number }}.apk
           make_latest: true
