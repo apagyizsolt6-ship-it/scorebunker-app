@@ -63,7 +63,7 @@ class Fixture {
     return status;
   }
 
-  /// A WebSocketen érkezett friss állás ráhúzása a meccsre.
+  /// A külön élő végpontból érkezett friss állás ráhúzása a meccsre.
   /// Befejezett meccset nem írunk felül.
   Fixture withLive(LiveScore s) {
     if (isFinished) return this;
@@ -88,6 +88,53 @@ class Fixture {
       penaltyHome: s.homePen ?? penaltyHome,
       penaltyAway: s.awayPen ?? penaltyAway,
       date: date,
+      kickoff: kickoff,
+    );
+  }
+
+  factory Fixture.fromStatPal(Map<String, dynamic> j, Map<String, dynamic> league, {bool forceLive = false}) {
+    int? number(dynamic value) {
+      if (value is num) return value.toInt();
+      return int.tryParse((value ?? '').toString());
+    }
+    String str(dynamic value) => (value ?? '').toString();
+    final home = j['home'] is Map ? Map<String, dynamic>.from(j['home']) : <String, dynamic>{};
+    final away = j['away'] is Map ? Map<String, dynamic>.from(j['away']) : <String, dynamic>{};
+    final dateText = str(j['date']);
+    final timeText = str(j['time']);
+    DateTime? kickoff;
+    try {
+      final date = DateFormat('dd.MM.yyyy').parseStrict(dateText);
+      final hm = timeText.split(':');
+      kickoff = DateTime(date.year, date.month, date.day, int.parse(hm[0]), int.parse(hm[1]));
+    } catch (_) {}
+    final rawStatus = str(j['status']).trim();
+    final upper = rawStatus.toUpperCase();
+    final status = forceLive ? 'LIVE' : const {'1H', '2H', 'HT', 'ET', 'PEN', 'LIVE', 'INPLAY', 'IN PLAY'}.contains(upper)
+        ? 'LIVE'
+        : const {'FT', 'AET', 'PENS', 'PENALTIES', 'FINISHED', 'ENDED'}.contains(upper)
+            ? (upper == 'PENALTIES' ? 'PENS' : upper == 'FINISHED' || upper == 'ENDED' ? 'FT' : upper)
+            : const {'NS', 'NOT STARTED', 'SCHEDULED', 'TIMED'}.contains(upper)
+                ? 'Scheduled' : rawStatus.isEmpty ? 'Scheduled' : rawStatus;
+    final penalties = j['penalties'] is Map ? Map<String, dynamic>.from(j['penalties']) : <String, dynamic>{};
+    final mainId = number(j['main_id']) ?? number(j['fallback_id_1']) ?? number(j['fallback_id_2']) ?? number(j['fallback_id_3']) ?? 0;
+    return Fixture(
+      id: mainId,
+      homeId: number(home['id']) ?? 0,
+      awayId: number(away['id']) ?? 0,
+      leagueId: number(league['id']) ?? 0,
+      leagueName: str(league['name']),
+      leagueZone: str(league['country']),
+      leagueGeo: str(league['country']),
+      homeTeam: str(home['name']),
+      awayTeam: str(away['name']),
+      status: status,
+      minute: j['inj_minute']?.toString() ?? j['inj_time']?.toString(),
+      homeScore: number(home['goals']),
+      awayScore: number(away['goals']),
+      penaltyHome: number(penalties['home_goals']),
+      penaltyAway: number(penalties['away_goals']),
+      date: dateText,
       kickoff: kickoff,
     );
   }

@@ -1,7 +1,7 @@
-/// Az élő (WebSocket) kapcsolat állapota.
+/// Az élő (REST frissítés) kapcsolat állapota.
 enum LiveConn { off, connecting, on }
 
-/// Egy `score_update` üzenet a SportAPI WebSocketről.
+/// Egy `score_update` üzenet a StatPal REST végpontról.
 class LiveScore {
   final int fixtureId;
   final int? homeScore;
