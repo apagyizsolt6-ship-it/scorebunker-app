@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -30,7 +31,7 @@ class ScorebunkerApp extends ConsumerWidget {
       settingsProvider.select((s) => (s.themeMode, s.accentIndex, s.oledBlack)),
     );
     return MaterialApp(
-      title: 'Apisccores',
+      title: 'APISCORES',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(brightness: Brightness.light, accentIndex: cfg.$2),
       darkTheme: buildTheme(
@@ -297,7 +298,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.20),
+              )),
+              boxShadow: [BoxShadow(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.07),
+                blurRadius: 18,
+                offset: const Offset(0, -4),
+              )],
+            ),
+            child: NavigationBar(
+        backgroundColor: Colors.transparent,
         selectedIndex: _index,
         onDestinationSelected: (index) => setState(() {
           _index = index;
@@ -325,6 +342,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             label: 'Profil',
           ),
         ],
+            ),
+          ),
+        ),
       ),
     );
   }
