@@ -376,12 +376,20 @@ class StatPalApi {
       '/teams/$teamId/squad',
       ttl: const Duration(hours: 12),
     );
-    final d = j['squad'];
-    return [
-      if (d is List)
-        for (final x in d)
-          if (x is Map) SquadPlayer.fromJson(Map<String, dynamic>.from(x)),
-    ];
+    final root = j['data'] is Map ? Map<String, dynamic>.from(j['data']) : j;
+    final d = j['squad'] ?? root['squad'] ?? root['players'] ??
+        (j['data'] is List ? j['data'] : null);
+    if (d is! List) return [];
+    final out = <SquadPlayer>[];
+    final seen = <String>{};
+    for (final x in d) {
+      if (x is! Map) continue;
+      final player = SquadPlayer.fromJson(Map<String, dynamic>.from(x));
+      if (player.name.isEmpty) continue;
+      final identity = '${player.playerId ?? 0}:${player.number ?? 0}:${player.name.toLowerCase()}';
+      if (seen.add(identity)) out.add(player);
+    }
+    return out;
   }
 
   Future<List<Trophy>> trophies(int teamId) async {
