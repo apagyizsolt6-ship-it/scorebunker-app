@@ -18,6 +18,7 @@ jobs:
   build:
     name: Build Release APK
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -45,13 +46,25 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      - name: Generate Android project
+        run: flutter create --platforms=android .
+
+      - name: Configure Android project
+        run: python3 tools/patch_android.py
+
+      - name: Verify Android files
+        run: |
+          test -f android/app/build.gradle || test -f android/app/build.gradle.kts
+          test -f android/settings.gradle || test -f android/settings.gradle.kts
+          echo "Android project successfully generated."
+
       - name: Flutter version
         run: flutter --version
 
       - name: Get Flutter dependencies
         run: flutter pub get
 
-      - name: Build Release APK with retry
+      - name: Build Release APK
         shell: bash
         run: |
           for attempt in 1 2 3; do
@@ -66,12 +79,12 @@ jobs:
 
             if [ "$attempt" -lt 3 ]; then
               wait_time=$((attempt * 30))
-              echo "Build failed. Waiting ${wait_time} seconds before retry..."
+              echo "Waiting ${wait_time} seconds before retry..."
               sleep "$wait_time"
             fi
           done
 
-          echo "APK build failed after 3 attempts"
+          echo "APK build failed after 3 attempts."
           exit 1
 
       - name: Upload APK
