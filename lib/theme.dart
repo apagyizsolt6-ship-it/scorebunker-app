@@ -19,7 +19,9 @@ const List<AccentOption> kAccents = [
   AccentOption('Pala', Color(0xFF7186A6)),
 ];
 
-/// APISCORES neon-glass téma. A képernyők elrendezését nem módosítja.
+/// APISCORES prémium neon-glass téma.
+/// A képernyők elrendezését nem változtatja; egységes, kifinomult
+/// felületet ad a meglévő kártyáknak, gomboknak és beviteli mezőknek.
 ThemeData buildTheme({
   required Brightness brightness,
   required int accentIndex,
@@ -32,6 +34,7 @@ ThemeData buildTheme({
       ? (oled ? const Color(0xFF000000) : const Color(0xFF090D18))
       : const Color(0xFFF1F5FC);
   final surface = dark ? const Color(0xFF121A2A) : const Color(0xFFFFFFFF);
+  final border = accent.withValues(alpha: dark ? 0.20 : 0.15);
   final scheme = ColorScheme.fromSeed(
     seedColor: accent,
     brightness: brightness,
@@ -56,12 +59,20 @@ ThemeData buildTheme({
     visualDensity: VisualDensity.standard,
   );
 
+  final radius = BorderRadius.circular(20);
+  final outline = OutlineInputBorder(
+    borderRadius: BorderRadius.circular(16),
+    borderSide: BorderSide(color: border, width: 1),
+  );
+  final focusedOutline = OutlineInputBorder(
+    borderRadius: BorderRadius.circular(16),
+    borderSide: BorderSide(color: accent, width: 1.6),
+  );
+
   return base.copyWith(
     textTheme: GoogleFonts.interTextTheme(base.textTheme),
     appBarTheme: AppBarTheme(
-      backgroundColor: dark
-          ? const Color(0xCC101827)
-          : const Color(0xDDF8FAFF),
+      backgroundColor: dark ? const Color(0xCC101827) : const Color(0xDDF8FAFF),
       foregroundColor: scheme.onSurface,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
@@ -75,10 +86,19 @@ ThemeData buildTheme({
       ),
       iconTheme: IconThemeData(color: accent),
     ),
+    cardTheme: CardThemeData(
+      color: surface.withValues(alpha: dark ? 0.94 : 0.98),
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      margin: const EdgeInsets.symmetric(vertical: 5),
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: BorderSide(color: border, width: 0.75),
+      ),
+      clipBehavior: Clip.antiAlias,
+    ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: dark
-          ? const Color(0xEE101827)
-          : const Color(0xEEF8FAFF),
+      backgroundColor: dark ? const Color(0xEE101827) : const Color(0xEEF8FAFF),
       indicatorColor: accent.withValues(alpha: dark ? 0.24 : 0.16),
       elevation: 0,
       height: 68,
@@ -95,14 +115,114 @@ ThemeData buildTheme({
         size: states.contains(WidgetState.selected) ? 25 : 22,
       )),
     ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: accent,
+        foregroundColor: Colors.white,
+        disabledBackgroundColor: scheme.onSurface.withValues(alpha: 0.10),
+        disabledForegroundColor: scheme.onSurfaceVariant,
+        minimumSize: const Size(48, 48),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        textStyle: GoogleFonts.inter(fontWeight: FontWeight.w800, letterSpacing: 0.1),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: scheme.surfaceContainerHigh,
+        foregroundColor: scheme.onSurface,
+        elevation: 0,
+        minimumSize: const Size(48, 46),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
+          side: BorderSide(color: border),
+        ),
+        textStyle: GoogleFonts.inter(fontWeight: FontWeight.w700),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: accent,
+        minimumSize: const Size(44, 44),
+        side: BorderSide(color: border, width: 1),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        textStyle: GoogleFonts.inter(fontWeight: FontWeight.w700),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: dark ? const Color(0xFF0D1422) : const Color(0xFFF8FAFF),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+      border: outline,
+      enabledBorder: outline,
+      focusedBorder: focusedOutline,
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: scheme.error, width: 1.2),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: scheme.error, width: 1.6),
+      ),
+      labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+      hintStyle: TextStyle(color: scheme.onSurfaceVariant.withValues(alpha: 0.72)),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(color: border),
+      ),
+      titleTextStyle: GoogleFonts.inter(
+        color: scheme.onSurface,
+        fontSize: 20,
+        fontWeight: FontWeight.w800,
+      ),
+      contentTextStyle: GoogleFonts.inter(color: scheme.onSurfaceVariant, height: 1.45),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: surface,
+      modalBackgroundColor: surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      showDragHandle: true,
+      dragHandleColor: accent.withValues(alpha: 0.55),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+    ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(
+      color: accent,
+      linearTrackColor: accent.withValues(alpha: 0.15),
+      circularTrackColor: accent.withValues(alpha: 0.15),
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.selected) ? accent : scheme.onSurfaceVariant),
+      trackColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.selected)
+              ? accent.withValues(alpha: 0.34)
+              : scheme.onSurface.withValues(alpha: 0.10)),
+      trackOutlineColor: WidgetStateProperty.all(border),
+    ),
+    checkboxTheme: CheckboxThemeData(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      side: BorderSide(color: scheme.onSurfaceVariant.withValues(alpha: 0.6)),
+      fillColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.selected) ? accent : Colors.transparent),
+      checkColor: WidgetStateProperty.all(Colors.white),
+    ),
     dividerTheme: DividerThemeData(
       color: accent.withValues(alpha: dark ? 0.16 : 0.12),
       thickness: 0.7,
     ),
     chipTheme: base.chipTheme.copyWith(
-      side: BorderSide(color: accent.withValues(alpha: 0.24)),
+      side: BorderSide(color: border),
       selectedColor: accent.withValues(alpha: dark ? 0.25 : 0.14),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+      labelStyle: GoogleFonts.inter(fontWeight: FontWeight.w600),
     ),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: dark ? const Color(0xFF202D43) : const Color(0xFF17243A),
