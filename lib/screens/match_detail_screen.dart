@@ -19,6 +19,7 @@ import '../widgets/charts.dart';
 import '../widgets/common.dart';
 import '../widgets/form_spark.dart';
 import '../widgets/reminder_button.dart';
+import '../widgets/statpal_betting_sections.dart';
 import 'compare_screen.dart';
 import 'h2h_screen.dart';
 import 'standings_screen.dart';
@@ -314,6 +315,9 @@ class MatchDetailScreen extends ConsumerWidget {
               const SizedBox(height: 24),
             ],
 
+            // StatPal odds-piacok és csapathiányzók
+            StatPalBettingSections(key: ValueKey('${f.id}_${f.status}'), fixture: f),
+
             // Tabella + forma (egy hívásból)
             standings.when(
               loading: () => const SizedBox.shrink(),
@@ -479,21 +483,6 @@ class MatchDetailScreen extends ConsumerWidget {
             _LineupsSection(fixtureId: f.id, home: f.homeLabel, away: f.awayLabel),
             const SizedBox(height: 16),
 
-            // Szöglet megjegyzés
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .surfaceContainerHighest
-                    .withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                'A szögletstatisztika StatPal-integrációja a következő fejlesztési lépésben készül el.',
-                style: TextStyle(fontSize: 12),
-              ),
-            ),
           ],
         ),
       ),
