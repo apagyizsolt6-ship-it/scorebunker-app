@@ -274,12 +274,67 @@ class StatPalApi {
     return l.isEmpty ? null : l;
   }
 
+  /// Egymás elleni mérkőzések a StatPal H2H végpontjáról.
   Future<List<Fixture>> h2h(int team1, int team2) async {
+    if (team1 <= 0 || team2 <= 0) return [];
     final j = await _get(
-      '/fixtures/h2h/$team1/$team2',
+      '/head-to-head?team1_id=$team1&team2_id=$team2',
       ttl: const Duration(hours: 24),
     );
-    return _fixtures(j['data']);
+    final data = j['data'] ?? j;
+    final out = <Fixture>[];
+    final league = <String, dynamic>{
+      'id': 0,
+      'name': 'Egymás ellen',
+      'country': '',
+    };
+    dynamic matches = data;
+    if (data is Map) {
+      matches = data['matches'] ?? data['match'] ?? data['fixtures'] ?? data['history'];
+      if (matches == null && data['league'] is List) return _fixtures(data);
+      if (matches == null && data['home'] is Map && data['away'] is Map) {
+        matches = [data];
+      }
+    }
+    if (matches is! List) return _fixtures(data);
+    for (final item in matches) {
+      if (item is! Map) continue;
+      final m = Map<String, dynamic>.from(item);
+      if (m['home'] is Map && m['away'] is Map) {
+        final f = Fixture.fromStatPal(m, league);
+        if (f.id != 0) out.add(f);
+      } else {
+        final f = Fixture.fromJson(m);
+        if (f.id != 0) out.add(f);
+      }
+    }
+    out.sort((a, b) => b.date.compareTo(a.date));
+    return out;
+  }
+
+  /// Élő oddsok. Élő meccseknél a rövid cache a frissítési ütemet követi.
+  Future<Map<String, dynamic>> liveOdds(int matchId) => _get(
+        '/odds/live?match_id=$matchId',
+        ttl: const Duration(seconds: 10),
+      );
+
+  /// Élő odds-piacok és market állapotok.
+  Future<Map<String, dynamic>> liveOddsMarkets(int matchId) => _get(
+        '/odds/live/markets?match_id=$matchId',
+        ttl: const Duration(seconds: 10),
+      );
+
+  /// Mérkőzés előtti oddsok a liga odds-végpontjáról.
+  Future<Map<String, dynamic>> prematchOdds(int leagueId, int matchId) => _get(
+        '/leagues/$leagueId/odds/prematch?match_id=$matchId',
+        ttl: const Duration(minutes: 30),
+      );
+
+  /// Sérülések és eltiltások egy csapatra.
+  Future<Map<String, dynamic>> injuriesSuspensions(int teamId) {
+    if (teamId <= 0) return Future.value(const <String, dynamic>{});
+    return _get('/injuries-suspensions?team_id=$teamId',
+        ttl: const Duration(hours: 1));
   }
 
   /// Teljes tabella a csapatok utolsó meccseivel (form).
