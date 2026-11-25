@@ -304,6 +304,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: Container(
             decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Theme.of(context).colorScheme.surface.withValues(alpha: 0.88),
+                  Theme.of(context).colorScheme.primary.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.055 : 0.035),
+                ],
+              ),
               border: Border(top: BorderSide(
                 color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.20),
               )),
