@@ -76,23 +76,24 @@ class TeamRow {
   factory TeamRow.fromJson(Map<String, dynamic> r, {String? group}) {
     final t = r['team'];
     final team = t is Map ? t : const {};
-    final gf = _i(r['goals_for']);
-    final ga = _i(r['goals_against']);
-    final g = r['group'];
-    final form = r['form'];
+    final gf = _i(r['goals_for'] ?? r['goals_scored'] ?? r['gf']);
+    final ga = _i(r['goals_against'] ?? r['goals_conceded'] ?? r['ga']);
+    final g = r['group'] ?? r['group_name'];
+    final form = r['form'] ?? r['last_matches'];
     return TeamRow(
       position: _i(r['position']),
-      teamId: _i(team['id']),
-      name: _s(team['name']),
-      shortName: _s(team['short_name']),
-      played: _i(r['played']),
-      won: _i(r['won']),
-      draw: _i(r['draw']),
-      lost: _i(r['lost']),
+      teamId: _i(team['id'] ?? team['team_id'] ?? r['team_id']),
+      name: _s(team['name'] ?? team['team_name'] ?? r['team_name'] ?? r['name']),
+      shortName: _s(team['short_name'] ?? team['short_name'] ?? r['short_name']),
+      played: _i(r['played'] ?? r['matches_played'] ?? r['mp']),
+      won: _i(r['won'] ?? r['wins'] ?? r['w']),
+      draw: _i(r['draw'] ?? r['draws'] ?? r['d']),
+      lost: _i(r['lost'] ?? r['losses'] ?? r['l']),
       goalsFor: gf,
       goalsAgainst: ga,
-      goalDiff: r['goal_difference'] is num ? _i(r['goal_difference']) : gf - ga,
-      points: _i(r['points']),
+      goalDiff: r['goal_difference'] != null || r['goal_diff'] != null
+          ? _i(r['goal_difference'] ?? r['goal_diff']) : gf - ga,
+      points: _i(r['points'] ?? r['pts']),
       group: group ?? (g is String ? g : ''),
       form: [
         if (form is List)
