@@ -15,6 +15,7 @@ class PlayerScreen extends ConsumerWidget {
   final String position;
   final String nationality;
   final int? age;
+  final String imageUrl;
 
   const PlayerScreen({
     super.key,
@@ -25,14 +26,15 @@ class PlayerScreen extends ConsumerWidget {
     required this.position,
     required this.nationality,
     required this.age,
+    this.imageUrl = '',
   });
 
   String _pos(String p) {
     final s = p.toLowerCase();
-    if (s.contains('goal')) return 'Kapus';
-    if (s.contains('def')) return 'Védő';
-    if (s.contains('mid')) return 'Középpályás';
-    if (s.contains('for') || s.contains('att') || s.contains('strik')) {
+    if (s.contains('goal') || s == 'gk' || s == 'keeper') return 'Kapus';
+    if (s.contains('def') || s == 'df' || s == 'cb' || s == 'lb' || s == 'rb') return 'Védő';
+    if (s.contains('mid') || s == 'mf' || s == 'cm' || s == 'dm' || s == 'am') return 'Középpályás';
+    if (s.contains('for') || s.contains('att') || s.contains('strik') || s == 'fw' || s == 'st') {
       return 'Támadó';
     }
     return p;
@@ -96,18 +98,32 @@ class PlayerScreen extends ConsumerWidget {
                   margin: EdgeInsets.zero,
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Text(name,
-                            style: const TextStyle(
-                                fontSize: 20, fontWeight: FontWeight.w800)),
-                        if (info.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(info,
-                                style: TextStyle(color: scheme.onSurfaceVariant)),
+                        CircleAvatar(
+                          radius: 31,
+                          backgroundColor: scheme.surfaceContainerHighest,
+                          backgroundImage: imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
+                          child: imageUrl.isEmpty ? const Icon(Icons.person, size: 30) : null,
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(name,
+                                  style: const TextStyle(
+                                      fontSize: 20, fontWeight: FontWeight.w800)),
+                              if (info.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(info,
+                                      style: TextStyle(color: scheme.onSurfaceVariant)),
+                                ),
+                            ],
                           ),
+                        ),
                       ],
                     ),
                   ),

@@ -178,7 +178,20 @@ class _OverviewTab extends ConsumerWidget {
                     children: [
                       Row(
                         children: [
-                          TeamLogo(teamId: teamId, size: 44),
+                          if (t.imageUrl.isNotEmpty)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(13),
+                              child: Image.network(
+                                t.imageUrl,
+                                width: 44,
+                                height: 44,
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => TeamLogo(teamId: teamId, size: 44),
+                              ),
+                            )
+                          else
+                            TeamLogo(teamId: teamId, size: 44),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: Text(t.name,
                                 style: const TextStyle(
@@ -235,10 +248,10 @@ class _SquadTab extends ConsumerWidget {
 
   int _order(String pos) {
     final p = pos.toLowerCase();
-    if (p.contains('goal')) return 0;
-    if (p.contains('def')) return 1;
-    if (p.contains('mid')) return 2;
-    if (p.contains('for') || p.contains('att') || p.contains('strik')) return 3;
+    if (p.contains('goal') || p == 'gk' || p == 'keeper') return 0;
+    if (p.contains('def') || p == 'df' || p == 'cb' || p == 'lb' || p == 'rb') return 1;
+    if (p.contains('mid') || p == 'mf' || p == 'cm' || p == 'dm' || p == 'am') return 2;
+    if (p.contains('for') || p.contains('att') || p.contains('strik') || p == 'fw' || p == 'st') return 3;
     return 4;
   }
 
@@ -287,6 +300,7 @@ class _SquadTab extends ConsumerWidget {
                         position: p.position,
                         nationality: p.nationality,
                         age: p.age,
+                        imageUrl: p.imageUrl,
                       ),
                     ),
                   ),
@@ -299,9 +313,27 @@ class _SquadTab extends ConsumerWidget {
                         child: Text(p.number?.toString() ?? '',
                             style: const TextStyle(fontWeight: FontWeight.w800)),
                       ),
+                      CircleAvatar(
+                        radius: 17,
+                        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        backgroundImage: p.imageUrl.isNotEmpty ? NetworkImage(p.imageUrl) : null,
+                        child: p.imageUrl.isEmpty
+                            ? const Icon(Icons.person_outline, size: 19)
+                            : null,
+                      ),
+                      const SizedBox(width: 10),
                       Expanded(
-                        child: Text(p.name,
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(p.name,
+                                maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.w700)),
+                            if (p.position.isNotEmpty)
+                              Text(p.position, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                          ],
+                        ),
                       ),
                       Text(
                         [
