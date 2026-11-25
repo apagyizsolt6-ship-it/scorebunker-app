@@ -136,7 +136,19 @@ class MatchDetailScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: RefreshIndicator(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Theme.of(context).colorScheme.primary.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.075 : 0.045),
+              Theme.of(context).scaffoldBackgroundColor,
+              Theme.of(context).colorScheme.tertiary.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.045 : 0.025),
+            ],
+          ),
+        ),
+        child: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(detailProvider(f.id));
           ref.invalidate(statsProvider((f.leagueId, f.id)));
@@ -152,6 +164,12 @@ class MatchDetailScreen extends ConsumerWidget {
 
             // Fejléc
             Card(
+              color: Theme.of(context).colorScheme.surface.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.82 : 0.92),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+                side: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.22)),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -485,6 +503,7 @@ class MatchDetailScreen extends ConsumerWidget {
 
           ],
         ),
+      ),
       ),
     );
   }

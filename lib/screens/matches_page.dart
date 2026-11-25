@@ -209,7 +209,31 @@ class MatchesPage extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('APISCORES'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Theme.of(context).colorScheme.primary, Theme.of(context).colorScheme.tertiary],
+                ),
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.30),
+                    blurRadius: 12,
+                    spreadRadius: 0.5,
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.sports_soccer, color: Colors.white, size: 19),
+            ),
+            const SizedBox(width: 9),
+            const Text('APISCORES'),
+          ],
+        ),
         centerTitle: true,
         actions: [
           const _LiveDot(),
@@ -276,7 +300,20 @@ class MatchesPage extends ConsumerWidget {
           child: _DateBar(),
         ),
       ),
-      body: _SwipeDays(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Theme.of(context).colorScheme.primary.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.055 : 0.035),
+              Theme.of(context).scaffoldBackgroundColor,
+              Theme.of(context).colorScheme.tertiary.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.035 : 0.025),
+            ],
+            stops: const [0, 0.48, 1],
+          ),
+        ),
+        child: _SwipeDays(
         child: keyState.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('$e')),
@@ -509,6 +546,7 @@ class MatchesPage extends ConsumerWidget {
           );
         },
       ),
+        ),
       ),
     );
   }
@@ -923,16 +961,35 @@ class MatchCard extends ConsumerWidget {
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              SizedBox(
-                width: 52,
-                child: Text(
-                  f.timeLabel,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: f.isLive ? Colors.red : scheme.onSurfaceVariant,
+              Container(
+                width: 54,
+                padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 3),
+                decoration: BoxDecoration(
+                  color: (f.isLive ? Colors.redAccent : scheme.primary).withValues(alpha: f.isLive ? 0.13 : 0.07),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: (f.isLive ? Colors.redAccent : scheme.primary).withValues(alpha: f.isLive ? 0.36 : 0.14),
                   ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (f.isLive) ...[
+                      const Text('ÉLŐ', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Colors.redAccent, letterSpacing: 0.7)),
+                      const SizedBox(height: 2),
+                    ],
+                    Text(
+                      f.timeLabel,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: f.isLive ? 12 : 13,
+                        fontWeight: FontWeight.w800,
+                        color: f.isLive ? Colors.redAccent : scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 8),
@@ -947,20 +1004,37 @@ class MatchCard extends ConsumerWidget {
                 ),
               ),
               if (f.hasScore)
-                Column(
-                  children: [
-                    Text('${f.homeScore}',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: f.isLive ? Colors.red : null)),
-                    const SizedBox(height: 4),
-                    Text('${f.awayScore}',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: f.isLive ? Colors.red : null)),
-                  ],
+                Container(
+                  constraints: const BoxConstraints(minWidth: 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: (f.isLive ? Colors.redAccent : scheme.primary).withValues(alpha: f.isLive ? 0.12 : 0.08),
+                    borderRadius: BorderRadius.circular(13),
+                    border: Border.all(
+                      color: (f.isLive ? Colors.redAccent : scheme.primary).withValues(alpha: f.isLive ? 0.32 : 0.16),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Text('${f.homeScore}', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: f.isLive ? Colors.redAccent : scheme.onSurface)),
+                      const SizedBox(height: 3),
+                      Container(width: 16, height: 1, color: scheme.onSurfaceVariant.withValues(alpha: 0.35)),
+                      const SizedBox(height: 3),
+                      Text('${f.awayScore}', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: f.isLive ? Colors.redAccent : scheme.onSurface)),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [scheme.primary.withValues(alpha: 0.14), scheme.tertiary.withValues(alpha: 0.10)],
+                    ),
+                    borderRadius: BorderRadius.circular(13),
+                    border: Border.all(color: scheme.primary.withValues(alpha: 0.18)),
+                  ),
+                  child: Text('VS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1, color: scheme.primary)),
                 ),
             ],
           ),
