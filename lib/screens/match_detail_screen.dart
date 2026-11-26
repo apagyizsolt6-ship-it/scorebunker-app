@@ -285,9 +285,9 @@ class MatchDetailScreen extends ConsumerWidget {
                   awayTeam: f.awayName,
                 );
               }),
-            ],
+              const SizedBox(height: 24),
 
-            // Statisztika
+              // Statisztika
               _title('Statisztika'),
               _StatsSection(leagueId: f.leagueId, fixtureId: f.id),
               const SizedBox(height: 24),
@@ -682,11 +682,9 @@ class _TimelineRow extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
               maxLines: 1,
               overflow: TextOverflow.ellipsis),
-          if ((event.assist ?? '').isNotEmpty || (event.detail ?? '').isNotEmpty)
+          if ((event.extra ?? '').isNotEmpty)
             Text(
-              [if ((event.assist ?? '').isNotEmpty) 'gólpassz: ${event.assist}', event.detail]
-                  .where((s) => s != null && s!.isNotEmpty)
-                  .join(' • '),
+              event.extra!,
               style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
