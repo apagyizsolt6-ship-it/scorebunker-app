@@ -281,8 +281,8 @@ class MatchDetailScreen extends ConsumerWidget {
                 if (events.isEmpty) return const Text('Még nincsenek események.');
                 return _ProEventTimeline(
                   events: events,
-                  homeTeam: f.homeName,
-                  awayTeam: f.awayName,
+                  homeTeam: f.homeTeam,
+                  awayTeam: f.awayTeam,
                 );
               }),
               const SizedBox(height: 24),
