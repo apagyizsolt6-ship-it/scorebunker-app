@@ -9,6 +9,7 @@ import '../providers.dart';
 import '../widgets/adjust_sheet.dart';
 import '../widgets/common.dart';
 import '../widgets/form_spark.dart';
+import '../widgets/premium_profile_hero.dart';
 import 'match_detail_screen.dart';
 import 'player_screen.dart';
 
@@ -170,36 +171,19 @@ class _OverviewTab extends ConsumerWidget {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(16),
             children: [
+              PremiumProfileHero(
+                title: t.name.isEmpty ? name : t.name,
+                eyebrow: t.country.isEmpty ? 'CSAPATPROFIL' : countryHu(t.country),
+                subtitle: [if (t.city.isNotEmpty) t.city, if (t.stadium.isNotEmpty) t.stadium].join(' • '),
+                imageUrl: t.imageUrl,
+                fallback: TeamLogo(teamId: teamId, size: 54),
+              ),
               Card(
                 margin: EdgeInsets.zero,
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Column(
                     children: [
-                      Row(
-                        children: [
-                          if (t.imageUrl.isNotEmpty)
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(13),
-                              child: Image.network(
-                                t.imageUrl,
-                                width: 44,
-                                height: 44,
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => TeamLogo(teamId: teamId, size: 44),
-                              ),
-                            )
-                          else
-                            TeamLogo(teamId: teamId, size: 44),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(t.name,
-                                style: const TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.w800)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
                       _info(Icons.flag_outlined, 'Ország',
                           t.country.isEmpty ? '' : countryHu(t.country)),
                       _info(Icons.location_city_outlined, 'Város', t.city),

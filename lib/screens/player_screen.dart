@@ -5,6 +5,7 @@ import '../models/player_stats.dart';
 import '../providers.dart';
 import '../services/prefs_store.dart';
 import '../widgets/common.dart';
+import '../widgets/premium_profile_hero.dart';
 
 /// Játékosoldal: szezon-összesítő és az utolsó meccsek a StatPal adataiból.
 class PlayerScreen extends ConsumerWidget {
@@ -94,39 +95,12 @@ class PlayerScreen extends ConsumerWidget {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(16),
               children: [
-                Card(
-                  margin: EdgeInsets.zero,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        CircleAvatar(
-                          radius: 31,
-                          backgroundColor: scheme.surfaceContainerHighest,
-                          backgroundImage: imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
-                          child: imageUrl.isEmpty ? const Icon(Icons.person, size: 30) : null,
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(name,
-                                  style: const TextStyle(
-                                      fontSize: 20, fontWeight: FontWeight.w800)),
-                              if (info.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(info,
-                                      style: TextStyle(color: scheme.onSurfaceVariant)),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                PremiumProfileHero(
+                  title: name,
+                  eyebrow: teamName.isEmpty ? 'JÁTÉKOSPROFIL' : teamName,
+                  subtitle: info,
+                  imageUrl: imageUrl,
+                  fallbackIcon: Icons.person_rounded,
                 ),
                 if (s == null || (s.totals.isEmpty && s.matches.isEmpty))
                   const Padding(
