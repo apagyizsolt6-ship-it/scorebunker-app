@@ -272,62 +272,22 @@ class MatchDetailScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
 
-            // Események
+            // Események – profi idővonal
             if (!f.isScheduled) ...[
               _title('Események'),
               _async(detail, (dd) {
                 final events = [...(dd?.events ?? const <FixtureEvent>[])]
                   ..sort((a, b) => a.sortKey.compareTo(b.sortKey));
-                if (events.isEmpty) return const Text('Nincs esemény.');
-                final scheme = Theme.of(context).colorScheme;
-                // Idővonal: középen a perc, a hazai események balra, a vendégek jobbra.
-                return Column(
-                  children: events.map((e) {
-                    final home = e.side == 'home';
-                    final text = Text('${e.icon} ${e.player}',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13));
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Align(
-                              alignment: Alignment.centerRight,
-                              child: home ? text : const SizedBox(),
-                            ),
-                          ),
-                          Container(
-                            width: 52,
-                            margin: const EdgeInsets.symmetric(horizontal: 8),
-                            padding: const EdgeInsets.symmetric(vertical: 3),
-                            decoration: BoxDecoration(
-                              color: scheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              e.minute,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                  fontSize: 11, fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                          Expanded(
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: home ? const SizedBox() : text,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
+                if (events.isEmpty) return const Text('Még nincsenek események.');
+                return _ProEventTimeline(
+                  events: events,
+                  homeTeam: f.homeName,
+                  awayTeam: f.awayName,
                 );
               }),
-              const SizedBox(height: 24),
+            ],
 
-              // Statisztika
+            // Statisztika
               _title('Statisztika'),
               _StatsSection(leagueId: f.leagueId, fixtureId: f.id),
               const SizedBox(height: 24),
@@ -623,6 +583,154 @@ class _StatsSection extends ConsumerWidget {
   }
 }
 
+class _ProEventTimeline extends StatelessWidget {
+  final List<FixtureEvent> events;
+  final String homeTeam;
+  final String awayTeam;
+  const _ProEventTimeline({
+    required this.events,
+    required this.homeTeam,
+    required this.awayTeam,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    int lastHalf = 1;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: scheme.surfaceContainerLow,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(homeTeam,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, color: Color(0xFF2563EB)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ),
+                const Text("Események",
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                Expanded(
+                  child: Text(awayTeam,
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, color: Color(0xFFDC2626)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+            ...events.expand((e) {
+              final minute = int.tryParse(e.minute.replaceAll(RegExp(r'[^0-9+]'), '')) ?? 0;
+              final half = minute > 45 ? 2 : 1;
+              final widgets = <Widget>[];
+              if (half > lastHalf) {
+                widgets.add(
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text("Félidő",
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                );
+                lastHalf = half;
+              }
+              widgets.add(_TimelineRow(event: e));
+              return widgets;
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TimelineRow extends StatelessWidget {
+  final FixtureEvent event;
+  const _TimelineRow({required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    final home = event.side == 'home';
+    final accent = home ? const Color(0xFF2563EB) : const Color(0xFFDC2626);
+    final card = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: home ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          Text('${event.icon} ${event.player}',
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+          if ((event.assist ?? '').isNotEmpty || (event.detail ?? '').isNotEmpty)
+            Text(
+              [if ((event.assist ?? '').isNotEmpty) 'gólpassz: ${event.assist}', event.detail]
+                  .where((s) => s != null && s!.isNotEmpty)
+                  .join(' • '),
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+        ],
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: home ? card : const SizedBox(),
+            ),
+          ),
+          Container(
+            width: 56,
+            margin: const EdgeInsets.symmetric(horizontal: 8),
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.6),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              event.minute.contains("'") ? event.minute : "${event.minute}'",
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+            ),
+          ),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: home ? const SizedBox() : card,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _StatBar extends StatelessWidget {
   final String label;
   final num home;
@@ -643,59 +751,61 @@ class _StatBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final hFlex = math.max(1, (home * 10).round());
-    final aFlex = math.max(1, (away * 10).round());
-    final hLead = home >= away;
+    final total = home + away;
+    final homeRatio = total > 0 ? home / total : 0.5;
+    final homeLead = home > away;
+    final awayLead = away > home;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
         children: [
-          SizedBox(
-            width: 46,
-            child: Text(_fmt(home),
-                style: TextStyle(
-                    fontWeight: hLead ? FontWeight.bold : FontWeight.w500)),
+          Row(
+            children: [
+              SizedBox(
+                width: 50,
+                child: Text(_fmt(home),
+                    style: TextStyle(
+                      fontWeight: homeLead ? FontWeight.w800 : FontWeight.w600,
+                      color: homeLead ? const Color(0xFF2563EB) : null,
+                      fontSize: 13,
+                    )),
+              ),
+              Expanded(
+                child: Text(label,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              ),
+              SizedBox(
+                width: 50,
+                child: Text(_fmt(away),
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      fontWeight: awayLead ? FontWeight.w800 : FontWeight.w600,
+                      color: awayLead ? const Color(0xFFDC2626) : null,
+                      fontSize: 13,
+                    )),
+              ),
+            ],
           ),
-          Expanded(
-            child: Column(
-              children: [
-                Text(label, style: const TextStyle(fontSize: 12)),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Expanded(
-                      flex: hFlex,
-                      child: Container(
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: scheme.primary,
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 3),
-                    Expanded(
-                      flex: aFlex,
-                      child: Container(
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: scheme.tertiary,
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              height: 7,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: (homeRatio * 100).round().clamp(5, 95),
+                    child: Container(color: const Color(0xFF2563EB)),
+                  ),
+                  Expanded(
+                    flex: ((1 - homeRatio) * 100).round().clamp(5, 95),
+                    child: Container(color: const Color(0xFFDC2626)),
+                  ),
+                ],
+              ),
             ),
-          ),
-          SizedBox(
-            width: 46,
-            child: Text(_fmt(away),
-                textAlign: TextAlign.right,
-                style: TextStyle(
-                    fontWeight: hLead ? FontWeight.w500 : FontWeight.bold)),
           ),
         ],
       ),
