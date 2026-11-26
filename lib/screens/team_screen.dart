@@ -61,7 +61,7 @@ class TeamScreen extends ConsumerWidget {
         ),
         body: TabBarView(
           children: [
-            _OverviewTab(teamId: teamId),
+            _OverviewTab(teamId: teamId, teamName: name),
             _SquadTab(teamId: teamId, teamName: name),
             _TrophiesTab(teamId: teamId),
           ],
@@ -82,7 +82,8 @@ Widget _section(BuildContext context, String text) => Padding(
 // ==================== ÁTTEKINTÉS ====================
 class _OverviewTab extends ConsumerWidget {
   final int teamId;
-  const _OverviewTab({required this.teamId});
+  final String teamName;
+  const _OverviewTab({required this.teamId, required this.teamName});
 
   Widget _info(IconData icon, String label, String value) {
     if (value.isEmpty) return const SizedBox.shrink();
@@ -172,7 +173,7 @@ class _OverviewTab extends ConsumerWidget {
             padding: const EdgeInsets.all(16),
             children: [
               PremiumProfileHero(
-                title: t.name.isEmpty ? name : t.name,
+                title: t.name.isEmpty ? teamName : t.name,
                 eyebrow: t.country.isEmpty ? 'CSAPATPROFIL' : countryHu(t.country),
                 subtitle: [if (t.city.isNotEmpty) t.city, if (t.stadium.isNotEmpty) t.stadium].join(' • '),
                 imageUrl: t.imageUrl,
