@@ -88,11 +88,14 @@ class TeamLogo extends ConsumerWidget {
     final show = ref.watch(settingsProvider.select((s) => s.showLogos));
     if (!show || teamId <= 0) return const SizedBox.shrink();
     final team = ref.watch(teamProvider(teamId));
+    final api = ref.watch(apiProvider);
+    final key = api?.key ?? '';
     final url = team.valueOrNull?.imageUrl.trim() ?? '';
     final uri = Uri.tryParse(url);
     final validUrl = uri != null && (uri.scheme == 'https' || uri.scheme == 'http') && uri.host.isNotEmpty;
-    // Fallback: StatPal közvetlen logó endpoint (ha a team válaszban nincs URL)
-    final fallbackUrl = 'https://statpal.io/api/v2/soccer/teams/$teamId/logo';
+    // Fallback: StatPal közvetlen logó endpoint (access_key-jel, ha van)
+    final fallbackBase = 'https://statpal.io/api/v2/soccer/teams/$teamId/logo';
+    final fallbackUrl = key.isNotEmpty ? '$fallbackBase?access_key=$key' : fallbackBase;
     final displayUri = validUrl ? uri : Uri.tryParse(fallbackUrl);
     final fallback = Container(
       width: size,
