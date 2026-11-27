@@ -20,18 +20,43 @@ final _kickoffWindowProvider = StateProvider<int?>((ref) => null);
 
 /// Zászló emoji az országkódból (pl. "ES", "GB-ENG", "EU").
 String _flagFor(String geo) {
-  final g = geo.toUpperCase();
-  const tags = {'GB-ENG': 'gbeng', 'GB-SCT': 'gbsct', 'GB-WLS': 'gbwls'};
-  final t = tags[g];
-  if (t != null) {
-    return String.fromCharCodes(
-        [0x1F3F4, ...t.codeUnits.map((c) => 0xE0000 + c), 0xE007F]);
+  final g = geo.trim().toUpperCase();
+  const countryCodes = <String, String>{
+    'AFGHANISTAN':'AF','ALBANIA':'AL','ALGERIA':'DZ','ANDORRA':'AD','ANGOLA':'AO',
+    'ARGENTINA':'AR','ARMENIA':'AM','AUSTRALIA':'AU','AUSTRIA':'AT','AZERBAIJAN':'AZ',
+    'BAHRAIN':'BH','BANGLADESH':'BD','BELARUS':'BY','BELGIUM':'BE','BENIN':'BJ',
+    'BOLIVIA':'BO','BOSNIA AND HERZEGOVINA':'BA','BOSNIA-HERZEGOVINA':'BA','BOTSWANA':'BW',
+    'BRAZIL':'BR','BULGARIA':'BG','BURKINA FASO':'BF','CAMEROON':'CM','CANADA':'CA',
+    'CHILE':'CL','CHINA':'CN','COLOMBIA':'CO','COSTA RICA':'CR','CROATIA':'HR','CUBA':'CU',
+    'CYPRUS':'CY','CZECH REPUBLIC':'CZ','CZECHIA':'CZ','DENMARK':'DK','DOMINICAN REPUBLIC':'DO',
+    'ECUADOR':'EC','EGYPT':'EG','EL SALVADOR':'SV','ENGLAND':'GB-ENG','ESTONIA':'EE',
+    'ETHIOPIA':'ET','FINLAND':'FI','FRANCE':'FR','GABON':'GA','GEORGIA':'GE','GERMANY':'DE',
+    'GHANA':'GH','GREECE':'GR','GUATEMALA':'GT','HONDURAS':'HN','HONG KONG':'HK',
+    'HUNGARY':'HU','ICELAND':'IS','INDIA':'IN','INDONESIA':'ID','IRAN':'IR','IRAQ':'IQ',
+    'IRELAND':'IE','ISRAEL':'IL','ITALY':'IT','IVORY COAST':'CI','COTE D’IVOIRE':'CI',
+    'JAMAICA':'JM','JAPAN':'JP','JORDAN':'JO','KAZAKHSTAN':'KZ','KENYA':'KE','KOSOVO':'XK',
+    'KUWAIT':'KW','LATVIA':'LV','LEBANON':'LB','LIBYA':'LY','LITHUANIA':'LT','LUXEMBOURG':'LU',
+    'MALAYSIA':'MY','MALI':'ML','MALTA':'MT','MEXICO':'MX','MOLDOVA':'MD','MONTENEGRO':'ME',
+    'MOROCCO':'MA','MOZAMBIQUE':'MZ','MYANMAR':'MM','NEPAL':'NP','NETHERLANDS':'NL',
+    'NEW ZEALAND':'NZ','NIGERIA':'NG','NORTH MACEDONIA':'MK','NORTHERN IRELAND':'GB-NIR',
+    'NORWAY':'NO','OMAN':'OM','PAKISTAN':'PK','PALESTINE':'PS','PANAMA':'PA','PARAGUAY':'PY',
+    'PERU':'PE','PHILIPPINES':'PH','POLAND':'PL','PORTUGAL':'PT','QATAR':'QA','ROMANIA':'RO',
+    'RUSSIA':'RU','RWANDA':'RW','SAUDI ARABIA':'SA','SCOTLAND':'GB-SCT','SENEGAL':'SN',
+    'SERBIA':'RS','SINGAPORE':'SG','SLOVAKIA':'SK','SLOVENIA':'SI','SOUTH AFRICA':'ZA',
+    'SOUTH KOREA':'KR','SPAIN':'ES','SRI LANKA':'LK','SUDAN':'SD','SWEDEN':'SE','SWITZERLAND':'CH',
+    'SYRIA':'SY','TAIWAN':'TW','TANZANIA':'TZ','THAILAND':'TH','TUNISIA':'TN','TURKEY':'TR',
+    'TÜRKIYE':'TR','UGANDA':'UG','UKRAINE':'UA','UNITED ARAB EMIRATES':'AE','UAE':'AE',
+    'UNITED KINGDOM':'GB','UNITED STATES':'US','USA':'US','URUGUAY':'UY','UZBEKISTAN':'UZ',
+    'VENEZUELA':'VE','VIETNAM':'VN','WALES':'GB-WLS','ZAMBIA':'ZM','ZIMBABWE':'ZW',
+  };
+  final code = countryCodes[g] ?? g;
+  const tags = {'GB-ENG': 'gbeng', 'GB-SCT': 'gbsct', 'GB-WLS': 'gbwls', 'GB-NIR':'gbnir'};
+  final tag = tags[code];
+  if (tag != null) {
+    return String.fromCharCodes([0x1F3F4, ...tag.codeUnits.map((c) => 0xE0000 + c), 0xE007F]);
   }
-  final ok = g.length == 2 || (g.length > 2 && g[2] == '-');
-  if (!ok) return '🌐';
-  final cc = g.substring(0, 2);
-  if (!RegExp(r'^[A-Z]{2}$').hasMatch(cc)) return '🌐';
-  return String.fromCharCodes(cc.codeUnits.map((c) => 0x1F1E6 + c - 0x41));
+  if (code.length != 2 || !RegExp(r'^[A-Z]{2}$').hasMatch(code)) return '🌐';
+  return String.fromCharCodes(code.codeUnits.map((c) => 0x1F1E6 + c - 0x41));
 }
 
 class _Group {

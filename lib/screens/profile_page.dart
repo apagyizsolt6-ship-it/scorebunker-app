@@ -446,8 +446,8 @@ class ProfilePage extends ConsumerWidget {
             secondary: const Icon(Icons.shield_outlined),
             title: const Text('Csapatlogók'),
             subtitle: const Text(
-              'Minden új logó betöltése API-kérésnek számíthat a keretedből. '
-              'A letöltött logók eltárolódnak.',
+              'A csapatadatok API-kérést igényelhetnek. '
+              'A csapatadat-válasz legfeljebb 3 óráig gyorsítótárazódik.',
             ),
             value: settings.showLogos,
             onChanged: (v) =>
