@@ -12,11 +12,12 @@ dynamic _first(Map<String, dynamic> m, List<String> keys) {
 }
 String _image(Map<String, dynamic> m) {
   final value = _first(m, const [
-    'image_url', 'image', 'logo_url', 'logo', 'photo_url', 'photo', 'picture', 'avatar'
+    'image_url', 'image', 'logo_url', 'logo', 'photo_url', 'photo', 'picture', 'avatar',
+    'crest', 'badge', 'team_logo', 'club_logo'
   ]);
   if (value is Map) {
     final nested = Map<String, dynamic>.from(value);
-    return _s(_first(nested, const ['url', 'src', 'image_url', 'logo_url', 'original']));
+    return _s(_first(nested, const ['url', 'src', 'image_url', 'logo_url', 'original', 'medium', 'small']));
   }
   return _s(value);
 }
@@ -49,6 +50,10 @@ class TeamInfo {
   factory TeamInfo.fromJson(Map<String, dynamic> j) {
     final root = _map(j['data']);
     final t = _map(_first(root, const ['team', 'club']) ?? _first(j, const ['team', 'club']) ?? root);
+    // Több helyen is keressük a logót (team, root, data)
+    String imageUrl = _image(t);
+    if (imageUrl.isEmpty) imageUrl = _image(root);
+    if (imageUrl.isEmpty) imageUrl = _image(j);
     final rawMatches = _first(root, const ['matches', 'fixtures', 'results']) ??
         _first(j, const ['matches', 'fixtures', 'results']);
     final rawLeagues = _first(root, const ['leagues', 'competitions']) ??
@@ -77,7 +82,7 @@ class TeamInfo {
       coach: _s(_first(t, const ['coach_name', 'coach', 'manager_name'])),
       stadium: _s(_first(t, const ['stadium_name', 'stadium', 'venue_name', 'venue'])),
       founded: _n(_first(t, const ['founded_year', 'founded', 'year_founded'])),
-      imageUrl: _image(t),
+      imageUrl: imageUrl,
       matches: matches,
       leagues: leagues,
     );
