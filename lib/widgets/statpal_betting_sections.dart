@@ -24,14 +24,44 @@ class _StatPalBettingSectionsState extends ConsumerState<StatPalBettingSections>
       'total goals': 'Összes gól', 'over/under': 'Gólok száma', 'goals over under': 'Gólok száma',
       'both teams to score': 'Mindkét csapat gólt szerez', 'btts': 'Mindkét csapat gólt szerez',
       'correct score': 'Pontos eredmény', 'double chance': 'Kettős esély',
-      'asian handicap': 'Ázsiai hendikep', 'handicap': 'Hendikep',
-      'total corners': 'Szögletek összesen', 'corners': 'Szögletek',
+      'asian handicap': 'Ázsiai hendikep', 'handicap': 'Hendikep', '3-way handicap': '3-Way Handicap',
+      'total corners': 'Szögletek összesen', 'corners': 'Szögletek', 'asian corners': 'Asian Corners',
       'total cards': 'Lapok összesen', 'cards': 'Lapok', 'booking points': 'Büntetőpontok',
       'half time result': 'Félidei eredmény', 'half time/full time': 'Félidő / végeredmény',
       'total shots': 'Lövések összesen', 'shots on target': 'Kapura lövések',
       'offsides': 'Lesek', 'total offsides': 'Lesek összesen', 'fouls': 'Szabálytalanságok',
     };
     return translations[v] ?? value;
+  }
+
+  int _marketPriority(String market) {
+    final m = market.toLowerCase();
+    const order = [
+      '1x2', 'mérkőzés győztese', 'végeredmény', 'full time result',
+      'összes gól', 'gólok száma', 'total goals', 'over/under',
+      'mindkét csapat gólt szerez', 'btts',
+      'kettős esély', 'double chance',
+      'ázsiai hendikep', 'asian handicap', 'hendikep', 'handicap',
+      'szögletek', 'corners',
+      'félidei', 'half time',
+      'lapok', 'cards',
+    ];
+    for (var i = 0; i < order.length; i++) {
+      if (m.contains(order[i])) return i;
+    }
+    return 100;
+  }
+
+  int _selectionPriority(String sel) {
+    final s = sel.toLowerCase();
+    if (s.contains('hazai') || s == 'home' || s == '1') return 0;
+    if (s.contains('döntetlen') || s == 'draw' || s == 'x') return 1;
+    if (s.contains('vendég') || s == 'away' || s == '2') return 2;
+    if (s.contains('több') || s == 'over') return 0;
+    if (s.contains('kevesebb') || s == 'under') return 1;
+    if (s.contains('igen') || s == 'yes') return 0;
+    if (s.contains('nem') || s == 'no') return 1;
+    return 50;
   }
 
   String _huSelection(String value) {
@@ -124,7 +154,28 @@ class _StatPalBettingSectionsState extends ConsumerState<StatPalBettingSections>
           ...StatPalAbsence.parse(data['awayAbsences']),
         ];
         final markets = <String, List<StatPalOddsRow>>{};
-        for (final row in odds) { (markets[_huMarket(row.market)] ??= []).add(row); }
+        for (final row in odds) {
+          (markets[_huMarket(row.market)] ??= []).add(row);
+        }
+        // Rendezés: fontos piacok előre, azon belül vonal szerint, majd kimenetel szerint
+        final sortedMarkets = markets.entries.toList()
+          ..sort((a, b) {
+            final pa = _marketPriority(a.key);
+            final pb = _marketPriority(b.key);
+            if (pa != pb) return pa.compareTo(pb);
+            return a.key.compareTo(b.key);
+          });
+        for (final entry in sortedMarkets) {
+          entry.value.sort((a, b) {
+            final la = double.tryParse(a.line ?? '') ?? 999;
+            final lb = double.tryParse(b.line ?? '') ?? 999;
+            if (la != lb) return la.compareTo(lb);
+            final sa = _selectionPriority(a.selection);
+            final sb = _selectionPriority(b.selection);
+            if (sa != sb) return sa.compareTo(sb);
+            return a.odds.compareTo(b.odds);
+          });
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -146,25 +197,41 @@ class _StatPalBettingSectionsState extends ConsumerState<StatPalBettingSections>
                       child: Text('Ehhez a mérkőzéshez jelenleg nem érkezett odds-adat.'),
                     )
                   else
-                    for (final entry in markets.entries)
+                    for (final entry in sortedMarkets)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w800)),
+                            Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
                             const SizedBox(height: 4),
-                            for (final row in entry.value)
+                            for (final row in entry.value.take(12)) // max 12 sor / piac a tisztaságért
                               Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 3),
+                                padding: const EdgeInsets.symmetric(vertical: 2),
                                 child: Row(
                                   children: [
-                                    Expanded(child: Text('${_huSelection(row.selection)}${row.line == null || row.line!.isEmpty ? '' : ' (${row.line})'}', style: const TextStyle(fontSize: 12))),
+                                    Expanded(
+                                      child: Text(
+                                        '${_huSelection(row.selection)}${row.line == null || row.line!.isEmpty ? '' : ' (${row.line})'}',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    ),
                                     if (row.bookmaker.isNotEmpty)
-                                      Padding(padding: const EdgeInsets.only(right: 8), child: Text(row.bookmaker, style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant))),
-                                    Text(row.odds.toStringAsFixed(2), style: const TextStyle(fontWeight: FontWeight.w800)),
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 8),
+                                        child: Text(
+                                          row.bookmaker,
+                                          style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                        ),
+                                      ),
+                                    Text(row.odds.toStringAsFixed(2), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
                                   ],
                                 ),
+                              ),
+                            if (entry.value.length > 12)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text('+ ${entry.value.length - 12} további', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                               ),
                             const Divider(height: 12),
                           ],
