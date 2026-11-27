@@ -68,7 +68,7 @@ class AppSettings {
   final int morningHour;
 
   const AppSettings({
-    this.showLogos = false,
+    this.showLogos = true,
     this.themeMode = ThemeMode.system,
     this.notifyKickoff = false,
     this.kickoffMinutes = 30,
@@ -149,7 +149,7 @@ class SettingsStore {
     final raw = p.getInt(_theme) ?? 0;
     final idx = (raw < 0 || raw >= ThemeMode.values.length) ? 0 : raw;
     return AppSettings(
-      showLogos: p.getBool(_logos) ?? false,
+      showLogos: p.getBool(_logos) ?? true,
       themeMode: ThemeMode.values[idx],
       notifyKickoff: p.getBool(_nKick) ?? false,
       kickoffMinutes: p.getInt(_nMin) ?? 30,

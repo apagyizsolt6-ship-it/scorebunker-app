@@ -184,7 +184,7 @@ class StatPalApi {
     return body;
   }
 
-  List<Fixture> _fixtures(dynamic data, {bool live = false}) {
+  List<Fixture> _fixtures(dynamic data) {
     final out = <Fixture>[];
     if (data is List) {
       for (final x in data) {
@@ -208,7 +208,9 @@ class StatPalApi {
       for (final matchValue in matches) {
         if (matchValue is Map) {
           final match = Map<String, dynamic>.from(matchValue);
-          final fixture = Fixture.fromStatPal(match, league, forceLive: live);
+          // A live-feed membership alone must not force LIVE: some feed entries
+          // can be scheduled/queued. Use the actual match status from StatPal.
+          final fixture = Fixture.fromStatPal(match);
           if (fixture.id != 0) {
             _matchPayloads[fixture.id] = {
               ...match,
@@ -239,7 +241,7 @@ class StatPalApi {
   /// Élő mérkőzések lekérése; StatPal REST frissítés.
   Future<List<Fixture>> liveMatches({bool force = true}) async {
     final j = await _get('/matches/live', force: force);
-    return _fixtures(j, live: true);
+    return _fixtures(j);
   }
 
   /// A meccs eseményei és félidei állása a napi/élő feedből.
@@ -328,60 +330,6 @@ class StatPalApi {
   Future<Map<String, dynamic>> prematchOdds(int leagueId, int matchId) => _get(
         '/leagues/$leagueId/odds/prematch?match_id=$matchId',
         ttl: const Duration(minutes: 30),
-      );
-
-  /// Modellalapú mérkőzés-előrejelzés a StatPal adataiból.
-  Future<Map<String, dynamic>> predictions(int matchId) {
-    if (matchId <= 0) return Future.value(const <String, dynamic>{});
-    return _get('/predictions?match_id=$matchId',
-        ttl: const Duration(minutes: 30));
-  }
-
-  /// Mérkőzésnapi időjárás-előrejelzés.
-  Future<Map<String, dynamic>> weatherForecast(int matchId) {
-    if (matchId <= 0) return Future.value(const <String, dynamic>{});
-    return _get('/weather-forecast?match_id=$matchId',
-        ttl: const Duration(hours: 3));
-  }
-
-  /// Élő odds-piacok állapotai (nyitott / felfüggesztett stb.).
-  Future<Map<String, dynamic>> liveOddsMatchStates([int? matchId]) => _get(
-        '/odds/live/match-states${matchId != null && matchId > 0 ? '?match_id=$matchId' : ''}',
-        ttl: const Duration(seconds: 10),
-      );
-
-  /// Bajnokság részletes statisztikái.
-  Future<Map<String, dynamic>> leagueStats(int leagueId) {
-    if (leagueId <= 0) return Future.value(const <String, dynamic>{});
-    return _get('/leagues/$leagueId/stats', ttl: const Duration(hours: 1));
-  }
-
-  /// Egy játékos teljes StatPal-profilja az azonosító alapján.
-  Future<Map<String, dynamic>> player(int playerId) {
-    if (playerId <= 0) return Future.value(const <String, dynamic>{});
-    return _get('/players/$playerId', ttl: const Duration(hours: 6));
-  }
-
-  /// Egy edző teljes StatPal-profilja azonosító alapján.
-  Future<Map<String, dynamic>> coach(int coachId) {
-    if (coachId <= 0) return Future.value(const <String, dynamic>{});
-    return _get('/coaches/$coachId', ttl: const Duration(hours: 6));
-  }
-
-  /// Képek lekérése egy StatPal-entitáshoz.
-  Future<Map<String, dynamic>> images(String entityType, int entityId) {
-    if (entityId <= 0 || entityType.trim().isEmpty) {
-      return Future.value(const <String, dynamic>{});
-    }
-    final type = Uri.encodeQueryComponent(entityType.trim());
-    return _get('/images?entity_type=$type&entity_id=$entityId',
-        ttl: const Duration(hours: 24));
-  }
-
-  /// Bajnokságok elérhető szezonjai.
-  Future<Map<String, dynamic>> leagueSeasons([int? leagueId]) => _get(
-        '/leagues/seasons${leagueId != null && leagueId > 0 ? '?league_id=$leagueId' : ''}',
-        ttl: const Duration(hours: 24),
       );
 
   /// Sérülések és eltiltások egy csapatra.
