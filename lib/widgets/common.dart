@@ -93,10 +93,11 @@ class TeamLogo extends ConsumerWidget {
     final url = team.valueOrNull?.imageUrl.trim() ?? '';
     final uri = Uri.tryParse(url);
     final validUrl = uri != null && (uri.scheme == 'https' || uri.scheme == 'http') && uri.host.isNotEmpty;
-    // Fallback: StatPal közvetlen logó endpoint (access_key-jel, ha van)
-    final fallbackBase = 'https://statpal.io/api/v2/soccer/teams/$teamId/logo';
-    final fallbackUrl = key.isNotEmpty ? '$fallbackBase?access_key=$key' : fallbackBase;
-    final displayUri = validUrl ? uri : Uri.tryParse(fallbackUrl);
+    // Hivatalos StatPal képi végpont: /images?type=team&id=... (5 percig érvényes redirect PNG-re)
+    final imageEndpoint = key.isNotEmpty
+        ? 'https://statpal.io/api/v2/soccer/images?type=team&id=$teamId&access_key=$key'
+        : '';
+    final displayUri = validUrl ? uri : (imageEndpoint.isNotEmpty ? Uri.tryParse(imageEndpoint) : null);
     final fallback = Container(
       width: size,
       height: size,
