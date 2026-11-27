@@ -1,173 +1,442 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:async';
+import 'dart:collection';
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
 
 import '../models/fixture.dart';
-import '../providers.dart';
-import '../screens/api_key_screen.dart';
-import '../services/statpal_api.dart';
+import '../models/leaders.dart';
+import '../models/league_info.dart';
+import '../models/match_extras.dart';
+import '../models/player_stats.dart';
+import '../models/standing.dart';
+import '../models/team.dart';
+import 'disk_cache.dart';
 
-void openApiKeyScreen(BuildContext context) {
-  Navigator.push(
-    context,
-    MaterialPageRoute(builder: (_) => const ApiKeyScreen()),
-  );
-}
-
-class NoKeyView extends StatelessWidget {
-  const NoKeyView({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.vpn_key_outlined, size: 48),
-            const SizedBox(height: 12),
-            const Text(
-              'Az adatok megjelenítéséhez add meg a StatPal hozzáférési kulcsodat.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: () => openApiKeyScreen(context),
-              child: const Text('API-kulcs megadása'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class ErrorView extends StatelessWidget {
-  final Object error;
-  final VoidCallback onRetry;
-  const ErrorView({super.key, required this.error, required this.onRetry});
+class ApiException implements Exception {
+  final String message;
+  final int? status;
+  const ApiException(this.message, [this.status]);
 
   @override
-  Widget build(BuildContext context) {
-    final isAuth = error is ApiException && (error as ApiException).status == 401;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, size: 48),
-            const SizedBox(height: 12),
-            Text(errorText(error), textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            if (isAuth)
-              FilledButton(
-                onPressed: () => openApiKeyScreen(context),
-                child: const Text('API-kulcs módosítása'),
-              )
-            else
-              FilledButton(onPressed: onRetry, child: const Text('Újra')),
-          ],
-        ),
-      ),
-    );
-  }
+  String toString() => message;
 }
 
-/// Csapatlogó a StatPal csapatadatából. A csapat-válasz 3 órás lemezcache-t kap;
-/// hiányzó vagy hibás kép esetén biztonságos jelvény-helyőrző jelenik meg.
-class TeamLogo extends ConsumerWidget {
-  final int teamId;
-  final double size;
-  final bool padRight;
+String errorText(Object e) => e is ApiException ? e.message : 'Hiba: $e';
 
-  const TeamLogo({super.key, required this.teamId, this.size = 22, this.padRight = true});
+/// A válaszfejlécekből kiolvasott kérés-keret (napi / havi).
+class ApiQuota {
+  final int? dayLimit;
+  final int? dayRemaining;
+  final DateTime? dayReset;
+  final int? monthLimit;
+  final int? monthRemaining;
+  final DateTime? monthReset;
+  final DateTime at;
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final show = ref.watch(settingsProvider.select((s) => s.showLogos));
-    if (!show || teamId <= 0) return const SizedBox.shrink();
-    final team = ref.watch(teamProvider(teamId));
-    final api = ref.watch(apiProvider);
-    final key = api?.key ?? '';
-    final url = team.valueOrNull?.imageUrl.trim() ?? '';
-    final uri = Uri.tryParse(url);
-    final validUrl = uri != null && (uri.scheme == 'https' || uri.scheme == 'http') && uri.host.isNotEmpty;
-    // Hivatalos StatPal képi végpont: /images?type=team&id=... (5 percig érvényes redirect PNG-re)
-    final imageEndpoint = key.isNotEmpty
-        ? 'https://statpal.io/api/v2/soccer/images?type=team&id=$teamId&access_key=$key'
-        : '';
-    final displayUri = validUrl ? uri : (imageEndpoint.isNotEmpty ? Uri.tryParse(imageEndpoint) : null);
-    final fallback = Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      ),
-      alignment: Alignment.center,
-      child: Icon(Icons.shield_outlined,
-          size: size * 0.72,
-          color: Theme.of(context).colorScheme.onSurfaceVariant),
-    );
-    return Padding(
-      padding: EdgeInsets.only(right: padRight ? 8 : 0),
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: displayUri != null
-            ? ClipOval(
-                child: Image.network(
-                  displayUri.toString(),
-                  width: size,
-                  height: size,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => fallback,
-                  loadingBuilder: (context, child, progress) =>
-                      progress == null ? child : fallback,
-                ),
-              )
-            : fallback,
-      ),
-    );
-  }
+  const ApiQuota({
+    this.dayLimit,
+    this.dayRemaining,
+    this.dayReset,
+    this.monthLimit,
+    this.monthRemaining,
+    this.monthReset,
+    required this.at,
+  });
 }
 
-/// Hosszú nyomásra: a meccs két csapatának kedvencekhez adása / törlése.
-Future<void> showTeamFavSheet(BuildContext context, Fixture f) {
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    builder: (ctx) => Consumer(
-      builder: (ctx, ref, _) {
-        final favs = ref.watch(favoritesProvider);
-        Widget tile(int id, String name) {
-          final on = favs.containsKey(id);
-          return ListTile(
-            leading: Icon(
-              on ? Icons.star : Icons.star_border,
-              color: on ? Colors.amber : null,
-            ),
-            title: Text(name),
-            subtitle: Text(on
-                ? 'Kedvenc – koppints az eltávolításhoz'
-                : 'Hozzáadás a kedvencekhez'),
-            onTap: () =>
-                ref.read(favoritesProvider.notifier).toggle(id, name),
-          );
+class _Cached {
+  final String etag;
+  final Map<String, dynamic> body;
+  const _Cached(this.etag, this.body);
+}
+
+class StatPalApi {
+  final String key;
+  final void Function(ApiQuota quota)? onQuota;
+
+  StatPalApi(this.key, {this.onQuota});
+
+  static const _base = 'https://statpal.io/api/v2/soccer';
+
+  /// ETag-gyorsítótár: ha az adat nem változott, a szerver 304-et ad,
+  /// és a korábbi választ használjuk újra.
+  static final LinkedHashMap<String, _Cached> _cache =
+      LinkedHashMap<String, _Cached>();
+
+  /// A napi/élő feedből megőrzött nyers meccsadatok. A részletek így
+  /// külön, felesleges API-hívás nélkül is megjeleníthetők.
+  static final Map<int, Map<String, dynamic>> _matchPayloads = {}; 
+
+  static ApiQuota? _quotaFrom(Map<String, String> h) {
+    int? i(String k) => int.tryParse(h[k] ?? '');
+    DateTime? t(String k) {
+      final s = i(k);
+      return s == null ? null : DateTime.fromMillisecondsSinceEpoch(s * 1000);
+    }
+
+    final dl = i('x-ratelimit-limit');
+    final dr = i('x-ratelimit-remaining');
+    final ml = i('x-ratelimit-month-limit');
+    final mr = i('x-ratelimit-month-remaining');
+    if (dl == null && dr == null && ml == null && mr == null) return null;
+    return ApiQuota(
+      dayLimit: dl,
+      dayRemaining: dr,
+      dayReset: t('x-ratelimit-reset'),
+      monthLimit: ml,
+      monthRemaining: mr,
+      monthReset: t('x-ratelimit-month-reset'),
+      at: DateTime.now(),
+    );
+  }
+
+  static String _dur(int s) {
+    if (s >= 3600) return '${(s / 3600).round()} óra';
+    if (s >= 60) return '${(s / 60).round()} perc';
+    return '$s mp';
+  }
+
+  static String _limitMessage(http.Response res) {
+    var scope = 'day';
+    try {
+      final b = jsonDecode(utf8.decode(res.bodyBytes));
+      if (b is Map && b['scope'] is String) scope = b['scope'] as String;
+    } catch (_) {}
+    final retry = int.tryParse(res.headers['retry-after'] ?? '');
+    final when = retry == null ? '' : ' Újra elérhető kb. ${_dur(retry)} múlva.';
+    if (scope == 'month') {
+      return 'Elérted a havi StatPal kérés-limitet.$when';
+    }
+    return 'Elérted a StatPal kérés-limitet.$when';
+  }
+
+  /// `ttl`: ennyi ideig a lemezre mentett válasz kérés nélkül is használható.
+  /// `force`: kihagyja a lemezes gyorsítótárat.
+  Future<Map<String, dynamic>> _get(
+    String path, {
+    Duration? ttl,
+    bool force = false,
+  }) async {
+    final cacheKey = '${key.hashCode}:$path';
+    if (ttl != null && !force) {
+      final hit = await DiskCache.read(path, ttl);
+      if (hit != null) return hit;
+    }
+    final cached = _cache[cacheKey];
+    final headers = <String, String>{
+      'Accept': 'application/json',
+      if (cached != null) 'If-None-Match': cached.etag,
+    };
+
+    final http.Response res;
+    try {
+      final requested = Uri.parse('$_base$path');
+      final query = <String, String>{...requested.queryParameters, 'access_key': key};
+      res = await http
+          .get(requested.replace(queryParameters: query), headers: headers)
+          .timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw const ApiException('Időtúllépés, próbáld újra.');
+    } catch (_) {
+      throw const ApiException('Nincs kapcsolat a szerverrel.');
+    }
+
+    final q = _quotaFrom(res.headers);
+    if (q != null && onQuota != null) onQuota!(q);
+
+    if (res.statusCode == 304 && cached != null) {
+      if (ttl != null) unawaited(DiskCache.write(path, cached.body));
+      return cached.body;
+    }
+    if (res.statusCode == 401) {
+      throw const ApiException('Hiányzó vagy érvénytelen API-kulcs.', 401);
+    }
+    if (res.statusCode == 429) {
+      throw ApiException(_limitMessage(res), 429);
+    }
+    if (res.statusCode == 404) {
+      throw const ApiException('Nem található.', 404);
+    }
+    if (res.statusCode != 200) {
+      throw ApiException('Szerverhiba (${res.statusCode}).', res.statusCode);
+    }
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(res.bodyBytes));
+    } catch (_) {
+      throw const ApiException('Váratlan válasz a szervertől.');
+    }
+    if (decoded is! Map<String, dynamic>) {
+      throw const ApiException('Váratlan válasz a szervertől.');
+    }
+    final Map<String, dynamic> body = decoded;
+
+    if (ttl != null) unawaited(DiskCache.write(path, body));
+
+    final etag = res.headers['etag'];
+    if (etag != null && etag.isNotEmpty) {
+      _cache.remove(cacheKey);
+      _cache[cacheKey] = _Cached(etag, body);
+      if (_cache.length > 80) _cache.remove(_cache.keys.first);
+    }
+    return body;
+  }
+
+  List<Fixture> _fixtures(dynamic data) {
+    final out = <Fixture>[];
+    if (data is List) {
+      for (final x in data) {
+        if (x is Map) out.add(Fixture.fromJson(Map<String, dynamic>.from(x)));
+      }
+      return out;
+    }
+    if (data is! Map) return out;
+    dynamic root = data;
+    if (root['league'] is! List) {
+      root = data.values.whereType<Map>().firstWhere(
+        (v) => v['league'] is List, orElse: () => const <String, dynamic>{});
+    }
+    final leagues = root is Map ? root['league'] : null;
+    if (leagues is! List) return out;
+    for (final leagueValue in leagues) {
+      if (leagueValue is! Map) continue;
+      final league = Map<String, dynamic>.from(leagueValue);
+      final matches = league['match'];
+      if (matches is! List) continue;
+      for (final matchValue in matches) {
+        if (matchValue is Map) {
+          final match = Map<String, dynamic>.from(matchValue);
+          // A live-feed membership alone must not force LIVE: some feed entries
+          // can be scheduled/queued. Use the actual match status from StatPal.
+          final fixture = Fixture.fromStatPal(match, league);
+          if (fixture.id != 0) {
+            _matchPayloads[fixture.id] = {
+              ...match,
+              '_league': league,
+            };
+          }
+          out.add(fixture);
         }
+      }
+    }
+    out.sort(byKickoff);
+    return out;
+  }
 
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              tile(f.homeId, f.homeTeam),
-              tile(f.awayId, f.awayTeam),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
-    ),
-  );
+  /// StatPal napi mérkőzéslista; az offset a mai naphoz képest értendő.
+  /// A mai napra a /matches/live végpontot használjuk (az összes mai meccs + élő pontszámok).
+  /// A /matches/daily offset csak -7..-1 és 1..7 között érvényes.
+  Future<List<Fixture>> fixturesByDate(DateTime d, {Duration? ttl, bool force = false}) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(d.year, d.month, d.day);
+    final offset = day.difference(today).inDays;
+    if (offset == 0) {
+      // Mai nap: a live végpont adja az összes mai meccset élő pontszámokkal
+      final j = await _get('/matches/live', ttl: ttl, force: force);
+      return _fixtures(j);
+    }
+    if (offset < -7 || offset > 7) {
+      throw const ApiException('A StatPal napi végpontja legfeljebb 7 nappal előre vagy hátra kérdezhető le.');
+    }
+    final j = await _get('/matches/daily?offset=$offset', ttl: ttl, force: force);
+    return _fixtures(j);
+  }
+
+  /// Élő mérkőzések lekérése; StatPal REST frissítés.
+  Future<List<Fixture>> liveMatches({bool force = true}) async {
+    final j = await _get('/matches/live', force: force);
+    return _fixtures(j);
+  }
+
+  /// A meccs eseményei és félidei állása a napi/élő feedből.
+  /// A StatPal napi és élő válasza tartalmazza ezeket az adatokat.
+  Future<FixtureDetail?> fixtureDetail(int fixtureId) async {
+    final payload = _matchPayloads[fixtureId];
+    if (payload == null) return null;
+    return FixtureDetail.fromStatPal(payload);
+  }
+
+  /// Mérkőzés-statisztikák a liga mérkőzés-statisztika végpontjáról.
+  Future<MatchStats?> stats(int leagueId, int fixtureId) async {
+    if (leagueId <= 0 || fixtureId <= 0) return null;
+    final j = await _get(
+      '/leagues/$leagueId/matches/stats?match_id=$fixtureId',
+      ttl: const Duration(minutes: 2),
+    );
+    final data = j['data'] is Map ? Map<String, dynamic>.from(j['data']) : j;
+    final s = MatchStats.fromJson(data);
+    return s.isEmpty ? null : s;
+  }
+
+  /// Kezdőcsapatok és cserék a StatPal meccs-összeállítás végpontjáról.
+  Future<Lineups?> lineups(int fixtureId) async {
+    if (fixtureId <= 0) return null;
+    final j = await _get(
+      '/team-lineups?match_id=$fixtureId',
+      ttl: const Duration(minutes: 15),
+    );
+    final data = j['data'] is Map ? Map<String, dynamic>.from(j['data']) : j;
+    final l = Lineups.fromJson(data);
+    return l.isEmpty ? null : l;
+  }
+
+  /// Egymás elleni mérkőzések a StatPal H2H végpontjáról.
+  Future<List<Fixture>> h2h(int team1, int team2) async {
+    if (team1 <= 0 || team2 <= 0) return [];
+    final j = await _get(
+      '/head-to-head?team1_id=$team1&team2_id=$team2',
+      ttl: const Duration(hours: 24),
+    );
+    final data = j['data'] ?? j;
+    final out = <Fixture>[];
+    final league = <String, dynamic>{
+      'id': 0,
+      'name': 'Egymás ellen',
+      'country': '',
+    };
+    dynamic matches = data;
+    if (data is Map) {
+      matches = data['matches'] ?? data['match'] ?? data['fixtures'] ?? data['history'];
+      if (matches == null && data['league'] is List) return _fixtures(data);
+      if (matches == null && data['home'] is Map && data['away'] is Map) {
+        matches = [data];
+      }
+    }
+    if (matches is! List) return _fixtures(data);
+    for (final item in matches) {
+      if (item is! Map) continue;
+      final m = Map<String, dynamic>.from(item);
+      if (m['home'] is Map && m['away'] is Map) {
+        final f = Fixture.fromStatPal(m, league);
+        if (f.id != 0) out.add(f);
+      } else {
+        final f = Fixture.fromJson(m);
+        if (f.id != 0) out.add(f);
+      }
+    }
+    out.sort((a, b) => b.date.compareTo(a.date));
+    return out;
+  }
+
+  /// Élő oddsok. Élő meccseknél a rövid cache a frissítési ütemet követi.
+  Future<Map<String, dynamic>> liveOdds(int matchId) => _get(
+        '/odds/live?match_id=$matchId',
+        ttl: const Duration(seconds: 10),
+      );
+
+  /// Élő odds-piacok és market állapotok.
+  Future<Map<String, dynamic>> liveOddsMarkets(int matchId) => _get(
+        '/odds/live/markets?match_id=$matchId',
+        ttl: const Duration(seconds: 10),
+      );
+
+  /// Mérkőzés előtti oddsok a liga odds-végpontjáról.
+  Future<Map<String, dynamic>> prematchOdds(int leagueId, int matchId) => _get(
+        '/leagues/$leagueId/odds/prematch?match_id=$matchId',
+        ttl: const Duration(minutes: 30),
+      );
+
+  /// Sérülések és eltiltások egy csapatra.
+  Future<Map<String, dynamic>> injuriesSuspensions(int teamId) {
+    if (teamId <= 0) return Future.value(const <String, dynamic>{});
+    return _get('/injuries-suspensions?team_id=$teamId',
+        ttl: const Duration(hours: 1));
+  }
+
+  /// Teljes tabella a csapatok utolsó meccseivel (form).
+  /// 4 óráig a lemezről jön, ha nincs `force`.
+  Future<LeagueTable> standings(int leagueId, {bool force = false}) async {
+    final j = await _get(
+      '/leagues/$leagueId/standings',
+      ttl: const Duration(hours: 4),
+      force: force,
+    );
+    return LeagueTable.fromJson(j);
+  }
+
+  /// Góllövők / gólpasszok / lapok egy bajnokságban (6 óráig gyorsítótárazva).
+  Future<List<LeaderRow>> leaders(
+    int leagueId,
+    LeaderKind kind, {
+    int limit = 25,
+  }) async {
+    final j = await _get(
+      '/leagues/$leagueId/${kind.path}?limit=$limit',
+      ttl: const Duration(hours: 6),
+    );
+    final d = j['data'];
+    return [
+      if (d is List)
+        for (final x in d)
+          if (x is Map) LeaderRow.fromJson(Map<String, dynamic>.from(x), kind),
+    ];
+  }
+
+  Future<TeamInfo> team(int teamId) async {
+    final j = await _get('/teams/$teamId', ttl: const Duration(hours: 3));
+    return TeamInfo.fromJson(j);
+  }
+
+  Future<List<SquadPlayer>> squad(int teamId) async {
+    final j = await _get(
+      '/teams/$teamId/squad',
+      ttl: const Duration(hours: 12),
+    );
+    final root = j['data'] is Map ? Map<String, dynamic>.from(j['data']) : j;
+    final d = j['squad'] ?? root['squad'] ?? root['players'] ??
+        (j['data'] is List ? j['data'] : null);
+    if (d is! List) return [];
+    final out = <SquadPlayer>[];
+    final seen = <String>{};
+    for (final x in d) {
+      if (x is! Map) continue;
+      final player = SquadPlayer.fromJson(Map<String, dynamic>.from(x));
+      if (player.name.isEmpty) continue;
+      final identity = '${player.playerId ?? 0}:${player.number ?? 0}:${player.name.toLowerCase()}';
+      if (seen.add(identity)) out.add(player);
+    }
+    return out;
+  }
+
+  Future<List<Trophy>> trophies(int teamId) async {
+    final j = await _get(
+      '/teams/$teamId/trophies',
+      ttl: const Duration(hours: 24),
+    );
+    final d = j['trophies'];
+    return [
+      if (d is List)
+        for (final x in d)
+          if (x is Map) Trophy.fromJson(Map<String, dynamic>.from(x)),
+    ];
+  }
+
+  /// Játékos szezon-statisztikája név + csapat (+ mezszám) alapján.
+  Future<PlayerStats?> playerStats(String name, int teamId, int? shirt) async {
+    final q = 'name=${Uri.encodeComponent(name)}&team_id=$teamId'
+        '${shirt == null ? '' : '&shirt_number=$shirt'}';
+    final j = await _get('/players/stats?$q', ttl: const Duration(hours: 6));
+    return PlayerStats.fromJson(j);
+  }
+
+  /// Az összes bajnokság (országonként csoportosítva), 24 óráig gyorsítótárazva.
+  Future<List<LeagueInfo>> leagues() async {
+    final j = await _get('/leagues', ttl: const Duration(hours: 24));
+    return LeagueInfo.parseAll(j['data']);
+  }
+
+  /// Modell-alapú mérkőzés-előrejelzés.
+  Future<Map<String, dynamic>> predictions(int matchId) {
+    if (matchId <= 0) return Future.value(const <String, dynamic>{});
+    return _get('/predictions?match_id=$matchId', ttl: const Duration(hours: 1));
+  }
+
+  /// Mérkőzésnapra vonatkozó időjárás-előrejelzés.
+  Future<Map<String, dynamic>> weatherForecast(int matchId) {
+    if (matchId <= 0) return Future.value(const <String, dynamic>{});
+    return _get('/weather-forecast?match_id=$matchId', ttl: const Duration(hours: 1));
+  }
 }
