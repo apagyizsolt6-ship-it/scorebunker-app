@@ -10,9 +10,16 @@ dynamic _first(Map<String, dynamic> m, List<String> keys) {
   }
   return null;
 }
-String _image(Map<String, dynamic> m) => _s(_first(m, const [
-      'image_url', 'image', 'logo_url', 'logo', 'photo_url', 'photo', 'picture', 'avatar'
-    ]));
+String _image(Map<String, dynamic> m) {
+  final value = _first(m, const [
+    'image_url', 'image', 'logo_url', 'logo', 'photo_url', 'photo', 'picture', 'avatar'
+  ]);
+  if (value is Map) {
+    final nested = Map<String, dynamic>.from(value);
+    return _s(_first(nested, const ['url', 'src', 'image_url', 'logo_url', 'original']));
+  }
+  return _s(value);
+}
 
 class TeamInfo {
   final int id;

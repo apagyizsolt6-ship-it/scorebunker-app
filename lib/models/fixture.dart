@@ -92,7 +92,7 @@ class Fixture {
     );
   }
 
-  factory Fixture.fromStatPal(Map<String, dynamic> j, Map<String, dynamic> league, {bool forceLive = false}) {
+  factory Fixture.fromStatPal(Map<String, dynamic> j, Map<String, dynamic> league) {
     int? number(dynamic value) {
       if (value is num) return value.toInt();
       return int.tryParse((value ?? '').toString());
@@ -110,11 +110,14 @@ class Fixture {
     } catch (_) {}
     final rawStatus = str(j['status']).trim();
     final upper = rawStatus.toUpperCase();
-    final status = forceLive ? 'LIVE' : const {'1H', '2H', 'HT', 'ET', 'PEN', 'LIVE', 'INPLAY', 'IN PLAY'}.contains(upper)
+    final status = const {
+      '1H', '2H', 'HT', 'ET', 'PEN', 'LIVE', 'INPLAY', 'IN PLAY',
+      'IN PROGRESS', 'FIRST HALF', 'SECOND HALF', 'HALF TIME', 'EXTRA TIME',
+    }.contains(upper)
         ? 'LIVE'
-        : const {'FT', 'AET', 'PENS', 'PENALTIES', 'FINISHED', 'ENDED'}.contains(upper)
-            ? (upper == 'PENALTIES' ? 'PENS' : upper == 'FINISHED' || upper == 'ENDED' ? 'FT' : upper)
-            : const {'NS', 'NOT STARTED', 'SCHEDULED', 'TIMED'}.contains(upper)
+        : const {'FT', 'AET', 'PENS', 'PENALTIES', 'FINISHED', 'ENDED', 'FULL TIME'}.contains(upper)
+            ? (upper == 'PENALTIES' ? 'PENS' : upper == 'FINISHED' || upper == 'ENDED' || upper == 'FULL TIME' ? 'FT' : upper)
+            : const {'NS', 'NOT STARTED', 'SCHEDULED', 'TIMED', 'UPCOMING', 'PRE-MATCH', 'PREMATCH', 'NOTSTARTED'}.contains(upper)
                 ? 'Scheduled' : rawStatus.isEmpty ? 'Scheduled' : rawStatus;
     final penalties = j['penalties'] is Map ? Map<String, dynamic>.from(j['penalties']) : <String, dynamic>{};
     final mainId = number(j['main_id']) ?? number(j['fallback_id_1']) ?? number(j['fallback_id_2']) ?? number(j['fallback_id_3']) ?? 0;
