@@ -210,7 +210,7 @@ class StatPalApi {
           final match = Map<String, dynamic>.from(matchValue);
           // A live-feed membership alone must not force LIVE: some feed entries
           // can be scheduled/queued. Use the actual match status from StatPal.
-          final fixture = Fixture.fromStatPal(match);
+          final fixture = Fixture.fromStatPal(match, league);
           if (fixture.id != 0) {
             _matchPayloads[fixture.id] = {
               ...match,
@@ -419,5 +419,18 @@ class StatPalApi {
   Future<List<LeagueInfo>> leagues() async {
     final j = await _get('/leagues', ttl: const Duration(hours: 24));
     return LeagueInfo.parseAll(j['data']);
+  }
+
+  /// Modell-alapú mérkőzés-előrejelzés (kimenetel valószínűségek stb.).
+  /// Ha a végpont nem elérhető, a hívó `_safe` üres mapet kap.
+  Future<Map<String, dynamic>> predictions(int matchId) {
+    if (matchId <= 0) return Future.value(const <String, dynamic>{});
+    return _get('/matches/$matchId/predictions', ttl: const Duration(hours: 1));
+  }
+
+  /// Mérkőzésnapra vonatkozó időjárás-előrejelzés.
+  Future<Map<String, dynamic>> weatherForecast(int matchId) {
+    if (matchId <= 0) return Future.value(const <String, dynamic>{});
+    return _get('/matches/$matchId/weather', ttl: const Duration(hours: 1));
   }
 }
