@@ -560,8 +560,15 @@ class _StatsSection extends ConsumerWidget {
         padding: EdgeInsets.all(16),
         child: Center(child: CircularProgressIndicator()),
       ),
-      error: (e, _) =>
-          Text(errorText(e), style: const TextStyle(color: Colors.red)),
+      error: (e, _) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Text(
+          e is ApiException && e.status == 404
+              ? 'Ehhez a mérkőzéshez még nincs elérhető statisztika (gyakran csak nagyobb ligáknál vagy a meccs előrehaladtával jelenik meg).'
+              : errorText(e),
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
+        ),
+      ),
       data: (s) {
         if (s == null) {
           return const Text('Ehhez a meccshez még nincs elérhető statisztika.');
