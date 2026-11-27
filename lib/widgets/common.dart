@@ -74,8 +74,8 @@ class ErrorView extends StatelessWidget {
   }
 }
 
-/// Csapatjelvény helyőrző. A StatPal képek végpontjának lekérése külön,
-/// a dokumentált képazonosító-paraméterek ellenőrzése után kapcsolható be.
+/// Csapatlogó a StatPal csapatadatából. A csapat-válasz 3 órás lemezcache-t kap;
+/// hiányzó vagy hibás kép esetén biztonságos jelvény-helyőrző jelenik meg.
 class TeamLogo extends ConsumerWidget {
   final int teamId;
   final double size;
@@ -86,11 +86,42 @@ class TeamLogo extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final show = ref.watch(settingsProvider.select((s) => s.showLogos));
-    if (!show || teamId == 0) return const SizedBox.shrink();
+    if (!show || teamId <= 0) return const SizedBox.shrink();
+    final team = ref.watch(teamProvider(teamId));
+    final url = team.valueOrNull?.imageUrl.trim() ?? '';
+    final uri = Uri.tryParse(url);
+    final validUrl = uri != null && (uri.scheme == 'https' || uri.scheme == 'http') && uri.host.isNotEmpty;
+    final fallback = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      ),
+      alignment: Alignment.center,
+      child: Icon(Icons.shield_outlined,
+          size: size * 0.72,
+          color: Theme.of(context).colorScheme.onSurfaceVariant),
+    );
     return Padding(
       padding: EdgeInsets.only(right: padRight ? 8 : 0),
-      child: Icon(Icons.shield_outlined, size: size * 0.9,
-          color: Theme.of(context).colorScheme.onSurfaceVariant),
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: validUrl
+            ? ClipOval(
+                child: Image.network(
+                  uri.toString(),
+                  width: size,
+                  height: size,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => fallback,
+                  loadingBuilder: (context, child, progress) =>
+                      progress == null ? child : fallback,
+                ),
+              )
+            : fallback,
+      ),
     );
   }
 }
