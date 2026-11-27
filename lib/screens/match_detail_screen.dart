@@ -20,6 +20,7 @@ import '../widgets/common.dart';
 import '../widgets/form_spark.dart';
 import '../widgets/reminder_button.dart';
 import '../widgets/statpal_betting_sections.dart';
+import '../widgets/statpal_match_preview.dart';
 import 'compare_screen.dart';
 import 'h2h_screen.dart';
 import 'standings_screen.dart';
@@ -295,6 +296,9 @@ class MatchDetailScreen extends ConsumerWidget {
 
             // StatPal odds-piacok és csapathiányzók
             StatPalBettingSections(key: ValueKey('${f.id}_${f.status}'), fixture: f),
+
+            // StatPal modell-előrejelzés és mérkőzésnapi időjárás.
+            StatPalMatchPreview(key: ValueKey('preview_${f.id}'), fixture: f),
 
             // Tabella + forma (egy hívásból)
             standings.when(
