@@ -91,6 +91,9 @@ class TeamLogo extends ConsumerWidget {
     final url = team.valueOrNull?.imageUrl.trim() ?? '';
     final uri = Uri.tryParse(url);
     final validUrl = uri != null && (uri.scheme == 'https' || uri.scheme == 'http') && uri.host.isNotEmpty;
+    // Fallback: StatPal közvetlen logó endpoint (ha a team válaszban nincs URL)
+    final fallbackUrl = 'https://statpal.io/api/v2/soccer/teams/$teamId/logo';
+    final displayUri = validUrl ? uri : Uri.tryParse(fallbackUrl);
     final fallback = Container(
       width: size,
       height: size,
@@ -108,10 +111,10 @@ class TeamLogo extends ConsumerWidget {
       child: SizedBox(
         width: size,
         height: size,
-        child: validUrl
+        child: displayUri != null
             ? ClipOval(
                 child: Image.network(
-                  uri.toString(),
+                  displayUri.toString(),
                   width: size,
                   height: size,
                   fit: BoxFit.contain,
